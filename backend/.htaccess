@@ -1,0 +1,28 @@
+# ==========================================
+# cPanel Phusion Passenger .htaccess for api.themadstory.com
+# ==========================================
+
+<IfModule mod_passenger.c>
+    PassengerAppRoot /home/username/madstory_backend
+    PassengerPython /home/username/virtualenv/madstory_backend/3.11/bin/python
+    PassengerBaseURI /
+    PassengerAppType wsgi
+    PassengerStartupFile passenger_wsgi.py
+</IfModule>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Force HTTPS for API requests
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>
+
+# CORS Headers for API responses
+<IfModule mod_headers.c>
+    Header set Access-Control-Allow-Origin "https://themadstory.com"
+    Header set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    Header set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With, Accept"
+    Header set Access-Control-Allow-Credentials "true"
+</IfModule>

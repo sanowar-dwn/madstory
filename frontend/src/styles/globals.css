@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-burgundy: #800020;
+  --color-burgundy-light: #9b1b30;
+  --color-tan: #f4eee6;
+  --color-tan-dark: #ded7cc;
+  --color-border: #e2ddd3;
+  --color-border-hover: #d4ccbd;
+  --font-bengali: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+  --font-serif: 'Lora', 'Merriweather', 'Georgia', serif;
+  --font-sans: 'IBM Plex Sans', 'Roboto', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #fcfbfa;
+  color: #1e2022;
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+}
+
+/* Typography styles */
+.font-bengali {
+  font-family: var(--font-bengali);
+}
+
+.font-serif {
+  font-family: var(--font-serif);
+}
+
+/* Container */
+.madstory-container {
+  width: 100%;
+  max-width: 1220px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+/* Hide scrollbar for thumbnail carousels */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media (min-width: 1280px) {
+  .madstory-container {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+/* Dual Logo 20-second Animated Switcher */
+.madstory-logo-container {
+  perspective: 1000px;
+  display: inline-block;
+  cursor: pointer;
+}
+
+.madstory-logo-flipper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 68px;
+  min-width: 200px;
+}
+
+.logo-flip-en, .logo-flip-bn {
+  transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+  backface-visibility: hidden;
+  max-height: 56px;
+  object-fit: contain;
+}
+
+/* Dotted dividers */
+.dotted-divider {
+  border-bottom: 1px dotted #dcd6cc;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+/* Magazine Category Card */
+.magazine-card {
+  background: #ffffff;
+  border: 1px solid #e2ddd3;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.magazine-card:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  border-color: #d4ccbd;
+}
+
+/* Category header bar */
+.magazine-card-header {
+  background: #f4eee6;
+  border-bottom: 1px solid #ded7cc;
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+}
+
+/* Burgundy 'সব' (All) button */
+.badge-sob {
+  background: #800020;
+  color: #ffffff;
+  font-family: var(--font-bengali);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 2px;
+  text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.badge-sob:hover {
+  background: #9b1b30;
+  transform: translateY(-1px);
+}
+
+/* Smooth zoom on hover */
+.img-zoom-wrapper {
+  overflow: hidden;
+}
+
+.img-zoom-wrapper img {
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.img-zoom-wrapper:hover img {
+  transform: scale(1.04);
+}
+
+/* Marquee / Ticker text */
+@keyframes ticker {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+
+.animate-ticker {
+  animation: ticker 28s linear infinite;
+}
+
+.animate-ticker:hover {
+  animation-play-state: paused;
+}
