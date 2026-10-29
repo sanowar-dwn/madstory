@@ -2,21 +2,38 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
-    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide
+    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
+    AuthorProfile
 )
 
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'name_en', 'slug', 'parent', 'display_order', 'is_nav_visible', 'articles_count')
-    list_filter = ('is_nav_visible', 'parent')
+    list_display = ('name', 'name_en', 'slug', 'parent', 'display_order', 'is_nav_visible', 'is_featured', 'articles_count', 'thumbnail_preview', 'banner_preview')
+    list_filter = ('is_nav_visible', 'is_featured', 'parent')
     search_fields = ('name', 'name_en', 'slug', 'description')
     prepopulated_fields = {'slug': ('name',)}
     ordering = ('display_order', 'name')
+    list_editable = ('is_nav_visible', 'is_featured')
+    fields = ('name', 'name_en', 'slug', 'parent', 'description', 'description_en', 'thumbnail', 'thumbnail_image', 'banner', 'banner_image', 'display_order', 'is_nav_visible', 'is_featured')
 
     def articles_count(self, obj):
         return obj.articles.count()
     articles_count.short_description = 'Articles'
+
+    def thumbnail_preview(self, obj):
+        img_url = obj.thumbnail
+        if img_url:
+            return format_html('<img src="{}" style="width: 40px; height: 30px; object-fit: cover; border-radius: 3px;" />', img_url)
+        return '-'
+    thumbnail_preview.short_description = 'Thumbnail'
+
+    def banner_preview(self, obj):
+        img_url = obj.banner
+        if img_url:
+            return format_html('<img src="{}" style="width: 60px; height: 30px; object-fit: cover; border-radius: 3px;" />', img_url)
+        return '-'
+    banner_preview.short_description = 'Banner'
 
 
 @admin.register(Article)
@@ -70,7 +87,7 @@ class CommentAdmin(admin.ModelAdmin):
 
 @admin.register(HomepageCustomization)
 class HomepageCustomizationAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'updated_at', 'show_hero', 'show_lead', 'show_art_culture')
+    list_display = ('__str__', 'updated_at', 'show_hero', 'show_featured_categories', 'show_lead', 'show_art_culture')
     filter_horizontal = ('hero_articles', 'colti_articles', 'nirbachito_articles', 'art_culture_articles', 'featured_categories')
 
     def has_add_permission(self, request):
@@ -107,3 +124,19 @@ class HeroSlideAdmin(admin.ModelAdmin):
     list_filter = ('is_active', 'created_at')
     search_fields = ('title', 'title_en', 'subtitle', 'subtitle_en')
     list_editable = ('display_order', 'is_active')
+
+
+@admin.register(AuthorProfile)
+class AuthorProfileAdmin(admin.ModelAdmin):
+    list_display = ('user', 'display_name', 'designation', 'location', 'is_featured', 'avatar_preview')
+    list_filter = ('is_featured', 'created_at')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name', 'display_name', 'display_name_en', 'designation')
+    list_editable = ('is_featured',)
+
+    def avatar_preview(self, obj):
+        img_url = obj.effective_avatar
+        if img_url:
+            return format_html('<img src="{}" style="width: 35px; height: 35px; border-radius: 50%; object-fit: cover;" />', img_url)
+        return '-'
+    avatar_preview.short_description = 'Avatar'
+

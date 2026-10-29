@@ -5,18 +5,21 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from django.db.models import F, Count
+from django.db.models import F, Count, Q
 from django.contrib.auth.models import User
 from django.utils import timezone
+from django.http import Http404
 from django.core.files.storage import default_storage
 from rest_framework_simplejwt.tokens import RefreshToken
 import os
 import uuid
+import urllib.parse
 from datetime import datetime
 
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
-    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide
+    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
+    AuthorProfile
 )
 from .serializers import (
     CategorySerializer, ArticleListSerializer, ArticleDetailSerializer,
@@ -24,8 +27,52 @@ from .serializers import (
     HomepageCustomizationSerializer, SiteSettingSerializer,
     ContactInquirySerializer, NewsletterSubscriberSerializer,
     UserSerializer, RegisterSerializer, AdminUserCreateUpdateSerializer,
-    AdminCommentSerializer, HeroSlideSerializer
+    AdminCommentSerializer, HeroSlideSerializer, AuthorProfileSerializer,
+    AuthorDetailSerializer, AuthorSummarySerializer
 )
+
+
+def resolve_slug_candidates(raw_val):
+    """
+    Robustly resolves a URL-provided slug into potential match candidates.
+    Handles:
+      - Raw Unicode Bengali / non-ASCII characters
+      - Percent-encoded URLs (%E0%A6...)
+      - Double-encoded URLs
+      - ISO-8859-1 (Latin-1) mojibake from WSGI/Passenger PEP 3333 environments
+    """
+    if not raw_val:
+        return []
+    raw_str = str(raw_val).strip()
+    candidates = [raw_str]
+
+    # 1. URL unquoted
+    try:
+        unquoted = urllib.parse.unquote(raw_str)
+        if unquoted and unquoted not in candidates:
+            candidates.append(unquoted)
+    except Exception:
+        pass
+
+    # 2. Latin-1 mojibake reversed to UTF-8
+    for s in list(candidates):
+        try:
+            fixed = s.encode('latin-1').decode('utf-8')
+            if fixed and fixed not in candidates:
+                candidates.append(fixed)
+        except Exception:
+            pass
+
+    # 3. Double unquoted
+    for s in list(candidates):
+        try:
+            d_unquoted = urllib.parse.unquote(s)
+            if d_unquoted and d_unquoted not in candidates:
+                candidates.append(d_unquoted)
+        except Exception:
+            pass
+
+    return candidates
 
 
 class IsAuthorOrStaff(permissions.BasePermission):
@@ -39,14 +86,34 @@ class CategoryViewSet(viewsets.ModelViewSet):
     """API endpoint for magazine categories and navigation trees."""
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    pagination_class = None
     lookup_field = 'slug'
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['is_nav_visible', 'parent']
+    filterset_fields = ['slug', 'id', 'is_nav_visible', 'is_featured', 'parent']
     search_fields = ['name', 'name_en', 'description', 'description_en']
     ordering_fields = ['display_order', 'name', 'created_at']
 
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        raw_val = self.kwargs.get(lookup_url_kwarg)
+        if not raw_val:
+            return super().get_object()
+
+        candidates = resolve_slug_candidates(raw_val)
+        q_filter = Q(slug__in=candidates)
+        if str(raw_val).isdigit():
+            q_filter |= Q(id=int(raw_val))
+
+        obj = queryset.filter(q_filter).first()
+        if not obj:
+            raise Http404("No Category matches the given query.")
+
+        self.check_object_permissions(self.request, obj)
+        return obj
+
     def get_permissions(self):
-        if self.action in ['list', 'retrieve']:
+        if self.action in ['list', 'retrieve', 'featured']:
             return [permissions.AllowAny()]
         return [permissions.IsAdminUser()]
 
@@ -65,6 +132,27 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return Response({'is_nav_visible': category.is_nav_visible})
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def toggle_featured(self, request, slug=None):
+        category = self.get_object()
+        category.is_featured = not category.is_featured
+        category.save(update_fields=['is_featured'])
+        custom = HomepageCustomization.objects.first()
+        if custom:
+            if category.is_featured:
+                custom.featured_categories.add(category)
+            else:
+                custom.featured_categories.remove(category)
+        return Response({'is_featured': category.is_featured})
+
+    @action(detail=False, methods=['get'])
+    def featured(self, request):
+        custom = HomepageCustomization.objects.first()
+        custom_ids = list(custom.featured_categories.values_list('id', flat=True)) if custom else []
+        from django.db.models import Q
+        categories = Category.objects.filter(Q(is_featured=True) | Q(id__in=custom_ids)).distinct().order_by('display_order', 'name')
+        return Response(CategorySerializer(categories, many=True, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
     def set_order(self, request, slug=None):
         category = self.get_object()
         new_order = request.data.get('display_order')
@@ -73,6 +161,70 @@ class CategoryViewSet(viewsets.ModelViewSet):
             category.save()
             return Response({'display_order': category.display_order})
         return Response({'error': 'Missing display_order'}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def reorder(self, request):
+        """
+        Bulk update categories display_order.
+        Accepts:
+          - order_ids: list of category IDs in the desired order, e.g. [3, 1, 4]
+          or
+          - orders: list of objects: [{'id': 3, 'display_order': 1}, {'slug': 'art', 'display_order': 2}]
+        """
+        order_ids = request.data.get('order_ids')
+        if not order_ids and hasattr(request.data, 'getlist'):
+            order_ids = request.data.getlist('order_ids') or request.data.getlist('order_ids[]')
+
+        orders = request.data.get('orders')
+
+        if order_ids and isinstance(order_ids, (list, tuple)):
+            orders = [{'id': item_id, 'display_order': index + 1} for index, item_id in enumerate(order_ids)]
+
+        if not orders or not isinstance(orders, (list, tuple)):
+            return Response({'error': 'Please provide "orders" list or "order_ids" list'}, status=status.HTTP_400_BAD_REQUEST)
+
+        id_to_order = {}
+        slug_to_order = {}
+        for item in orders:
+            if not isinstance(item, dict):
+                continue
+            order_val = item.get('display_order')
+            if order_val is None:
+                continue
+            try:
+                order_int = max(0, int(order_val))
+            except (ValueError, TypeError):
+                continue
+
+            if 'id' in item and item['id'] is not None:
+                id_to_order[item['id']] = order_int
+            elif 'slug' in item and item['slug']:
+                slug_to_order[item['slug']] = order_int
+
+        if not id_to_order and not slug_to_order:
+            return Response({'error': 'No valid category order entries provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        updated_count = 0
+        from django.db import transaction
+        with transaction.atomic():
+            if id_to_order:
+                categories = Category.objects.filter(id__in=id_to_order.keys())
+                for cat in categories:
+                    new_val = id_to_order[cat.id]
+                    if cat.display_order != new_val:
+                        cat.display_order = new_val
+                        cat.save(update_fields=['display_order'])
+                        updated_count += 1
+            if slug_to_order:
+                categories = Category.objects.filter(slug__in=slug_to_order.keys())
+                for cat in categories:
+                    new_val = slug_to_order[cat.slug]
+                    if cat.display_order != new_val:
+                        cat.display_order = new_val
+                        cat.save(update_fields=['display_order'])
+                        updated_count += 1
+
+        return Response({'status': 'ok', 'updated_count': updated_count})
 
 
 class ArticleViewSet(viewsets.ModelViewSet):
@@ -83,9 +235,28 @@ class ArticleViewSet(viewsets.ModelViewSet):
     queryset = Article.objects.all()
     lookup_field = 'slug'
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['categories__slug', 'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice', 'status']
+    filterset_fields = ['slug', 'id', 'categories__slug', 'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice', 'status', 'author__username']
     search_fields = ['title', 'title_en', 'excerpt', 'excerpt_en', 'content', 'author_name']
     ordering_fields = ['published_at', 'view_count', 'created_at']
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        raw_val = self.kwargs.get(lookup_url_kwarg)
+        if not raw_val:
+            return super().get_object()
+
+        candidates = resolve_slug_candidates(raw_val)
+        q_filter = Q(slug__in=candidates)
+        if str(raw_val).isdigit():
+            q_filter |= Q(id=int(raw_val))
+
+        obj = queryset.filter(q_filter).first()
+        if not obj:
+            raise Http404("No Article matches the given query.")
+
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def get_permissions(self):
         if self.action in ['create', 'my_posts', 'heart']:
@@ -98,13 +269,46 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        # Regular public calls only see published
-        if self.action in ['list', 'retrieve', 'featured_hero', 'colti_trending', 'nirbachito', 'popular', 'magazine_home']:
+        # Regular public feeds only see published articles
+        if self.action in ['featured_hero', 'colti_trending', 'nirbachito', 'popular', 'magazine_home']:
             category_slug = self.request.query_params.get('category__slug') or self.request.query_params.get('categories__slug') or self.request.query_params.get('category')
+            author_param = self.request.query_params.get('author') or self.request.query_params.get('author__username')
             qs = Article.objects.filter(status='published')
             if category_slug:
                 qs = qs.filter(categories__slug=category_slug)
+            if author_param:
+                if str(author_param).isdigit():
+                    qs = qs.filter(Q(author__id=int(author_param)) | Q(author__username=author_param))
+                else:
+                    qs = qs.filter(author__username=author_param)
             return qs.distinct()
+        elif self.action == 'list':
+            category_slug = self.request.query_params.get('category__slug') or self.request.query_params.get('categories__slug') or self.request.query_params.get('category')
+            author_param = self.request.query_params.get('author') or self.request.query_params.get('author__username')
+            status_param = self.request.query_params.get('status')
+
+            if user.is_authenticated and user.is_staff and status_param:
+                if status_param == 'all':
+                    qs = Article.objects.all()
+                else:
+                    qs = Article.objects.filter(status=status_param)
+            else:
+                qs = Article.objects.filter(status='published')
+
+            if category_slug:
+                qs = qs.filter(categories__slug=category_slug)
+            if author_param:
+                if str(author_param).isdigit():
+                    qs = qs.filter(Q(author__id=int(author_param)) | Q(author__username=author_param))
+                else:
+                    qs = qs.filter(author__username=author_param)
+            return qs.distinct()
+        elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+            if user.is_authenticated:
+                if user.is_staff:
+                    return Article.objects.all()
+                return Article.objects.filter(Q(status='published') | Q(author=user))
+            return Article.objects.filter(status='published')
         elif self.action == 'my_posts':
             return Article.objects.filter(author=user)
         elif self.action in ['pending']:
@@ -122,8 +326,9 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        Article.objects.filter(pk=instance.pk).update(view_count=F('view_count') + 1)
-        instance.refresh_from_db()
+        if instance.status == 'published':
+            Article.objects.filter(pk=instance.pk).update(view_count=F('view_count') + 1)
+            instance.refresh_from_db()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
@@ -250,12 +455,33 @@ class ArticleViewSet(viewsets.ModelViewSet):
         flag = request.data.get('flag')
         if flag in ['is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice']:
             current_val = getattr(article, flag)
-            setattr(article, flag, not current_val)
+            new_val = not current_val
+            setattr(article, flag, new_val)
             article.save()
+
+            # Keep HomepageCustomization in sync if present
+            custom = HomepageCustomization.objects.first()
+            if custom:
+                if flag == 'is_colti_trending':
+                    if new_val:
+                        custom.colti_articles.add(article)
+                    else:
+                        custom.colti_articles.remove(article)
+                elif flag == 'is_nirbachito_choice':
+                    if new_val:
+                        custom.nirbachito_articles.add(article)
+                    else:
+                        custom.nirbachito_articles.remove(article)
+                elif flag == 'is_featured_hero':
+                    if new_val:
+                        custom.hero_articles.add(article)
+                    else:
+                        custom.hero_articles.remove(article)
+
             return Response({
                 'status': 'success',
                 'flag': flag,
-                'value': getattr(article, flag)
+                'value': new_val
             })
         return Response({'error': 'Invalid flag'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -264,35 +490,20 @@ class ArticleViewSet(viewsets.ModelViewSet):
     # -------------------------------------------------------------
     @action(detail=False, methods=['get'])
     def featured_hero(self, request):
-        custom = HomepageCustomization.objects.first()
-        if custom and custom.hero_articles.exists():
-            articles = custom.hero_articles.filter(status='published')[:5]
-        else:
-            articles = self.get_queryset().filter(is_featured_hero=True)[:5]
-        if not articles.exists():
-            articles = self.get_queryset()[:5]
+        # Only articles explicitly flagged as special featured (বিশেষ ফিচার)
+        articles = self.get_queryset().filter(is_featured_hero=True)[:6]
         return Response(ArticleListSerializer(articles, many=True, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
     def colti_trending(self, request):
-        custom = HomepageCustomization.objects.first()
-        if custom and custom.colti_articles.exists():
-            articles = custom.colti_articles.filter(status='published')[:6]
-        else:
-            articles = self.get_queryset().filter(is_colti_trending=True)[:6]
-        if not articles.exists():
-            articles = self.get_queryset()[:6]
+        # Only articles explicitly flagged as trending
+        articles = self.get_queryset().filter(is_colti_trending=True)[:6]
         return Response(ArticleListSerializer(articles, many=True, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
     def nirbachito(self, request):
-        custom = HomepageCustomization.objects.first()
-        if custom and custom.nirbachito_articles.exists():
-            articles = custom.nirbachito_articles.filter(status='published')[:4]
-        else:
-            articles = self.get_queryset().filter(is_nirbachito_choice=True)[:4]
-        if not articles.exists():
-            articles = self.get_queryset()[:4]
+        # Only articles explicitly flagged as editor's choice
+        articles = self.get_queryset().filter(is_nirbachito_choice=True)[:4]
         return Response(ArticleListSerializer(articles, many=True, context={'request': request}).data)
 
     @action(detail=False, methods=['get'])
@@ -302,16 +513,17 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def magazine_home(self, request):
-        custom = HomepageCustomization.objects.first()
-        
-        hero = (custom.hero_articles.filter(status='published')[:5] if custom and custom.hero_articles.exists() 
-                else self.get_queryset().filter(is_featured_hero=True)[:5])
-        colti = (custom.colti_articles.filter(status='published')[:6] if custom and custom.colti_articles.exists() 
-                 else self.get_queryset().filter(is_colti_trending=True)[:6])
-        nirbachito = (custom.nirbachito_articles.filter(status='published')[:4] if custom and custom.nirbachito_articles.exists() 
-                      else self.get_queryset().filter(is_nirbachito_choice=True)[:4])
+        # Only articles explicitly flagged with these three editorial flags
+        hero = self.get_queryset().filter(is_featured_hero=True)[:6]
+        colti = self.get_queryset().filter(is_colti_trending=True)[:6]
+        nirbachito = self.get_queryset().filter(is_nirbachito_choice=True)[:4]
         popular = self.get_queryset().order_by('-view_count', '-published_at')[:6]
         recent = self.get_queryset()[:12]
+
+        custom = HomepageCustomization.objects.first()
+        custom_ids = list(custom.featured_categories.values_list('id', flat=True)) if custom else []
+        from django.db.models import Q
+        featured_cats = Category.objects.filter(Q(is_featured=True) | Q(id__in=custom_ids)).distinct().order_by('display_order', 'name')
 
         return Response({
             'hero': ArticleListSerializer(hero, many=True, context={'request': request}).data,
@@ -319,6 +531,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
             'nirbachito': ArticleListSerializer(nirbachito, many=True, context={'request': request}).data,
             'popular': ArticleListSerializer(popular, many=True, context={'request': request}).data,
             'recent': ArticleListSerializer(recent, many=True, context={'request': request}).data,
+            'featured_categories': CategorySerializer(featured_cats, many=True, context={'request': request}).data,
         })
 
 
@@ -392,14 +605,139 @@ class CurrentUserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        user = request.user
+        # Ensure profile exists
+        AuthorProfile.objects.get_or_create(user=user)
+        serializer = UserSerializer(user)
         return Response(serializer.data)
 
     def patch(self, request):
-        serializer = UserSerializer(request.user, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        user = request.user
+        profile, _ = AuthorProfile.objects.get_or_create(user=user)
+
+        # Update core user fields if present
+        user_serializer = UserSerializer(user, data=request.data, partial=True)
+        user_serializer.is_valid(raise_exception=True)
+        user_serializer.save()
+
+        # Update profile fields if present in nested 'profile' object or top-level payload
+        profile_data = request.data.get('profile')
+        if not isinstance(profile_data, dict):
+            profile_data = request.data
+
+        profile_fields = [
+            'display_name', 'display_name_en', 'designation', 'designation_en',
+            'bio', 'bio_en', 'avatar', 'cover_image', 'location', 'location_en',
+            'website', 'facebook_url', 'twitter_url', 'instagram_url', 'linkedin_url', 'github_url'
+        ]
+        has_profile_updates = False
+        for f in profile_fields:
+            if f in profile_data:
+                setattr(profile, f, profile_data[f])
+                has_profile_updates = True
+        if has_profile_updates:
+            profile.save()
+
+        user.refresh_from_db()
+        return Response(UserSerializer(user).data)
+
+
+class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Public API for authors & contributors:
+      - /api/authors/ (list authors with articles/profiles)
+      - /api/authors/<username>/ (author profile details & stats)
+      - /api/authors/<username>/articles/ (paginated articles by author)
+      - /api/authors/me/ (current user profile read & customization)
+    """
+    queryset = User.objects.filter(is_active=True).select_related('profile').order_by('-date_joined')
+    serializer_class = AuthorDetailSerializer
+    lookup_field = 'username'
+    filter_backends = [SearchFilter, OrderingFilter]
+    search_fields = ['username', 'first_name', 'last_name', 'profile__display_name', 'profile__display_name_en', 'profile__designation']
+    ordering_fields = ['date_joined', 'username']
+
+    def get_object(self):
+        queryset = self.filter_queryset(self.get_queryset())
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        raw_val = self.kwargs.get(lookup_url_kwarg)
+        if not raw_val:
+            return super().get_object()
+
+        candidates = resolve_slug_candidates(raw_val)
+        q_filter = Q(username__in=candidates) | Q(username__iexact=raw_val)
+        if str(raw_val).isdigit():
+            q_filter |= Q(id=int(raw_val))
+
+        obj = queryset.filter(q_filter).first()
+        if not obj:
+            # Fallback: check all active users
+            obj = User.objects.filter(is_active=True).filter(q_filter).first()
+        if not obj:
+            raise Http404("Author not found.")
+        self.check_object_permissions(self.request, obj)
+        return obj
+
+    def get_permissions(self):
+        if self.action in ['me']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
+
+    @action(detail=False, methods=['get', 'patch', 'put'], permission_classes=[permissions.IsAuthenticated])
+    def me(self, request):
+        user = request.user
+        profile, _ = AuthorProfile.objects.get_or_create(user=user)
+
+        if request.method in ['PATCH', 'PUT']:
+            user_fields = ['first_name', 'last_name', 'email']
+            for field in user_fields:
+                if field in request.data:
+                    setattr(user, field, request.data[field])
+            user.save()
+
+            profile_data = request.data.get('profile')
+            if not isinstance(profile_data, dict):
+                profile_data = request.data
+
+            profile_serializer = AuthorProfileSerializer(profile, data=profile_data, partial=True)
+            profile_serializer.is_valid(raise_exception=True)
+            profile_serializer.save()
+
+            user.refresh_from_db()
+
+        serializer = AuthorDetailSerializer(user, context={'request': request})
         return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def articles(self, request, username=None):
+        author = self.get_object()
+        ordering = request.query_params.get('ordering', '-published_at')
+        allowed_orderings = ['-published_at', 'published_at', '-view_count', 'view_count']
+
+        articles = Article.objects.filter(author=author, status='published')
+        search_query = request.query_params.get('search', '').strip()
+        if search_query:
+            articles = articles.filter(
+                Q(title__icontains=search_query) |
+                Q(title_en__icontains=search_query) |
+                Q(excerpt__icontains=search_query)
+            )
+
+        if ordering in allowed_orderings:
+            articles = articles.order_by(ordering)
+        elif ordering == '-hearts':
+            articles = articles.annotate(hearts_total=Count('hearts')).order_by('-hearts_total')
+        else:
+            articles = articles.order_by('-published_at')
+
+        page = self.paginate_queryset(articles)
+        if page is not None:
+            serializer = ArticleListSerializer(page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+
+        serializer = ArticleListSerializer(articles, many=True, context={'request': request})
+        return Response(serializer.data)
+
 
 
 class AdminDashboardStatsView(APIView):
@@ -703,7 +1041,12 @@ class MediaUploadView(APIView):
         file_url = default_storage.url(saved_path)
 
         if not file_url.startswith(('http://', 'https://')):
-            file_url = request.build_absolute_uri(file_url)
+            host = request.get_host().lower()
+            if any(h in host for h in ('127.0.0.1', 'localhost')):
+                # In local development, retain relative URL so local host is not baked into DB
+                pass
+            else:
+                file_url = request.build_absolute_uri(file_url)
 
         return Response({
             'url': file_url,

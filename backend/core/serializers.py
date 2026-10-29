@@ -3,16 +3,96 @@ from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema_field
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
-    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide
+    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
+    AuthorProfile
 )
+
+
+class AuthorProfileSerializer(serializers.ModelSerializer):
+    effective_avatar = serializers.CharField(read_only=True)
+    effective_cover = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = AuthorProfile
+        fields = [
+            'id', 'display_name', 'display_name_en', 'designation', 'designation_en',
+            'bio', 'bio_en', 'avatar', 'avatar_image', 'cover_image', 'cover_image_file',
+            'effective_avatar', 'effective_cover',
+            'location', 'location_en', 'website',
+            'facebook_url', 'twitter_url', 'instagram_url', 'linkedin_url', 'github_url',
+            'is_featured', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'effective_avatar', 'effective_cover']
+        extra_kwargs = {
+            'avatar_image': {'required': False, 'allow_null': True},
+            'cover_image_file': {'required': False, 'allow_null': True},
+            'avatar': {'required': False, 'allow_blank': True},
+            'cover_image': {'required': False, 'allow_blank': True},
+            'website': {'required': False, 'allow_blank': True},
+            'facebook_url': {'required': False, 'allow_blank': True},
+            'twitter_url': {'required': False, 'allow_blank': True},
+            'instagram_url': {'required': False, 'allow_blank': True},
+            'linkedin_url': {'required': False, 'allow_blank': True},
+            'github_url': {'required': False, 'allow_blank': True},
+        }
+
+
+class AuthorSummarySerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    avatar = serializers.SerializerMethodField()
+    cover_image = serializers.SerializerMethodField()
+    designation = serializers.SerializerMethodField()
+    designation_en = serializers.SerializerMethodField()
+    bio = serializers.SerializerMethodField()
+    bio_en = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'name', 'avatar', 'cover_image', 'designation', 'designation_en', 'bio', 'bio_en']
+
+    def get_name(self, obj):
+        profile = getattr(obj, 'profile', None)
+        if profile and profile.display_name:
+            return profile.display_name
+        full = obj.get_full_name()
+        return full if full else obj.username
+
+    def get_avatar(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.effective_avatar if profile else ''
+
+    def get_cover_image(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.effective_cover if profile else ''
+
+    def get_designation(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.designation if (profile and profile.designation) else 'লেখক'
+
+    def get_designation_en(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.designation_en if (profile and profile.designation_en) else 'Author'
+
+    def get_bio(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.bio if profile else ''
+
+    def get_bio_en(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.bio_en if profile else ''
 
 
 class UserSerializer(serializers.ModelSerializer):
     articles_count = serializers.IntegerField(source='articles.count', read_only=True)
+    profile = AuthorProfileSerializer(read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'is_staff', 'is_superuser', 'is_active', 'date_joined', 'articles_count']
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name',
+            'is_staff', 'is_superuser', 'is_active', 'date_joined',
+            'articles_count', 'profile'
+        ]
         read_only_fields = ['id', 'date_joined', 'articles_count']
 
 
@@ -66,7 +146,10 @@ class SubCategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Category
-        fields = ['id', 'name', 'name_en', 'slug', 'description', 'description_en', 'display_order', 'articles_count']
+        fields = [
+            'id', 'name', 'name_en', 'slug', 'description', 'description_en',
+            'thumbnail', 'banner', 'display_order', 'is_nav_visible', 'is_featured', 'articles_count'
+        ]
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -77,10 +160,16 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = [
             'id', 'name', 'name_en', 'slug', 'description', 'description_en',
-            'parent', 'subcategories', 'display_order', 'is_nav_visible', 'articles_count'
+            'thumbnail', 'thumbnail_image', 'banner', 'banner_image',
+            'parent', 'subcategories', 'display_order',
+            'is_nav_visible', 'is_featured', 'articles_count'
         ]
         extra_kwargs = {
-            'slug': {'required': False, 'allow_blank': True}
+            'slug': {'required': False, 'allow_blank': True},
+            'thumbnail': {'required': False, 'allow_blank': True},
+            'thumbnail_image': {'required': False, 'allow_null': True},
+            'banner': {'required': False, 'allow_blank': True},
+            'banner_image': {'required': False, 'allow_null': True}
         }
 
 
@@ -138,12 +227,13 @@ class ArticleListSerializer(serializers.ModelSerializer):
     hearts_count = serializers.IntegerField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
     is_hearted = serializers.SerializerMethodField()
+    author = AuthorSummarySerializer(read_only=True)
 
     class Meta:
         model = Article
         fields = [
             'id', 'title', 'title_en', 'slug', 'categories', 'category_name', 'category_name_en', 'category_slug',
-            'excerpt', 'excerpt_en', 'image', 'author_name', 'reading_time', 'reading_time_en',
+            'excerpt', 'excerpt_en', 'image', 'author', 'author_name', 'reading_time', 'reading_time_en',
             'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice',
             'view_count', 'status', 'published_at', 'hearts_count', 'comments_count', 'is_hearted'
         ]
@@ -180,12 +270,13 @@ class ArticleDetailSerializer(serializers.ModelSerializer):
     comments_count = serializers.IntegerField(read_only=True)
     is_hearted = serializers.SerializerMethodField()
     related_articles = serializers.SerializerMethodField()
+    author = AuthorSummarySerializer(read_only=True)
 
     class Meta:
         model = Article
         fields = [
             'id', 'title', 'title_en', 'slug', 'categories', 'excerpt', 'excerpt_en',
-            'content', 'content_en', 'image', 'author_name', 'reading_time', 'reading_time_en',
+            'content', 'content_en', 'image', 'author', 'author_name', 'reading_time', 'reading_time_en',
             'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice',
             'view_count', 'status', 'published_at', 'hearts_count', 'comments_count',
             'is_hearted', 'related_articles'
@@ -210,6 +301,43 @@ class ArticleDetailSerializer(serializers.ModelSerializer):
         return ArticleListSerializer(related, many=True, context=self.context).data
 
 
+class AuthorDetailSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    profile = AuthorProfileSerializer(read_only=True)
+    articles_count = serializers.SerializerMethodField()
+    total_views = serializers.SerializerMethodField()
+    total_hearts = serializers.SerializerMethodField()
+    recent_articles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'name', 'first_name', 'last_name',
+            'date_joined', 'is_staff', 'profile',
+            'articles_count', 'total_views', 'total_hearts', 'recent_articles'
+        ]
+
+    def get_name(self, obj):
+        profile = getattr(obj, 'profile', None)
+        if profile and profile.display_name:
+            return profile.display_name
+        full = obj.get_full_name()
+        return full if full else obj.username
+
+    def get_articles_count(self, obj):
+        return obj.articles.filter(status='published').count()
+
+    def get_total_views(self, obj):
+        return sum(obj.articles.filter(status='published').values_list('view_count', flat=True))
+
+    def get_total_hearts(self, obj):
+        return PostHeart.objects.filter(article__author=obj, article__status='published').count()
+
+    def get_recent_articles(self, obj):
+        articles = obj.articles.filter(status='published').order_by('-published_at')[:12]
+        return ArticleListSerializer(articles, many=True, context=self.context).data
+
+
 class ArticleWriteSerializer(serializers.ModelSerializer):
     category_ids = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), many=True, write_only=True, required=False
@@ -220,7 +348,8 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'title_en', 'slug', 'category_ids', 'excerpt', 'excerpt_en',
             'content', 'content_en', 'cover_image', 'cover_image_url',
-            'reading_time', 'reading_time_en', 'status'
+            'reading_time', 'reading_time_en', 'status',
+            'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice'
         ]
         read_only_fields = ['id', 'slug']
 
@@ -231,10 +360,19 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
 
         # Writers submit as 'pending_approval' or 'draft', Admins can set 'published' directly
         status = validated_data.pop('status', 'pending_approval')
-        if user and not user.is_staff and status == 'published':
+        if user and not user.is_staff:
             status = 'pending_approval'
+            validated_data.pop('is_featured_hero', None)
+            validated_data.pop('is_colti_trending', None)
+            validated_data.pop('is_nirbachito_choice', None)
 
-        author_name = user.get_full_name() or user.username if user else 'The Mad Story Desk'
+        author_name = 'The Mad Story Desk'
+        if user:
+            profile = getattr(user, 'profile', None)
+            if profile and profile.display_name:
+                author_name = profile.display_name
+            else:
+                author_name = user.get_full_name() or user.username
 
         article = Article.objects.create(
             author=user,
@@ -244,6 +382,16 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
         )
         if category_ids:
             article.categories.set(category_ids)
+
+        custom = HomepageCustomization.objects.first()
+        if custom:
+            if article.is_featured_hero:
+                custom.hero_articles.add(article)
+            if article.is_colti_trending:
+                custom.colti_articles.add(article)
+            if article.is_nirbachito_choice:
+                custom.nirbachito_articles.add(article)
+
         return article
 
     def update(self, instance, validated_data):
@@ -251,8 +399,12 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         user = request.user if request and request.user.is_authenticated else None
 
-        if user and not user.is_staff and validated_data.get('status') == 'published':
-            validated_data['status'] = 'pending_approval'
+        if user and not user.is_staff:
+            if validated_data.get('status') == 'published':
+                validated_data['status'] = 'pending_approval'
+            validated_data.pop('is_featured_hero', None)
+            validated_data.pop('is_colti_trending', None)
+            validated_data.pop('is_nirbachito_choice', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -260,6 +412,26 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
 
         if category_ids is not None:
             instance.categories.set(category_ids)
+
+        # Sync with HomepageCustomization if editorial flags changed
+        custom = HomepageCustomization.objects.first()
+        if custom:
+            if 'is_featured_hero' in validated_data:
+                if instance.is_featured_hero:
+                    custom.hero_articles.add(instance)
+                else:
+                    custom.hero_articles.remove(instance)
+            if 'is_colti_trending' in validated_data:
+                if instance.is_colti_trending:
+                    custom.colti_articles.add(instance)
+                else:
+                    custom.colti_articles.remove(instance)
+            if 'is_nirbachito_choice' in validated_data:
+                if instance.is_nirbachito_choice:
+                    custom.nirbachito_articles.add(instance)
+                else:
+                    custom.nirbachito_articles.remove(instance)
+
         return instance
 
 
@@ -280,7 +452,8 @@ class HomepageCustomizationSerializer(serializers.ModelSerializer):
             'ticker_text_bn', 'ticker_text_en', 'hero_title_bn', 'hero_title_en',
             'colti_title_bn', 'colti_title_en', 'nirbachito_title_bn', 'nirbachito_title_en',
             'art_culture_title_bn', 'art_culture_title_en',
-            'show_hero', 'show_lead', 'show_art_culture', 'show_category_blocks',
+            'featured_categories_title_bn', 'featured_categories_title_en',
+            'show_hero', 'show_featured_categories', 'show_lead', 'show_art_culture', 'show_category_blocks',
             'show_sidebar', 'updated_at'
         ]
 

@@ -253,3 +253,94 @@ class MadStoryProductionTests(TestCase):
         bad_file = SimpleUploadedFile("danger.exe", b"binarycontent", content_type="application/octet-stream")
         res_bad = self.client.post('/api/v1/upload/', {'image': bad_file}, format='multipart')
         self.assertEqual(res_bad.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_category_bulk_reorder_endpoint(self):
+        # 1. Unauthenticated / non-admin cannot reorder
+        self.client.force_authenticate(user=self.writer)
+        res_forbidden = self.client.post('/api/v1/categories/reorder/', {'order_ids': [self.cat2.id, self.cat1.id]}, format='json')
+        self.assertEqual(res_forbidden.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Admin can bulk reorder with order_ids
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post('/api/v1/categories/reorder/', {'order_ids': [self.cat2.id, self.cat1.id]}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.cat1.refresh_from_db()
+        self.cat2.refresh_from_db()
+        self.assertEqual(self.cat2.display_order, 1)
+        self.assertEqual(self.cat1.display_order, 2)
+
+        # 3. Admin can bulk reorder with orders array
+        res_orders = self.client.post('/api/v1/categories/reorder/', {
+            'orders': [
+                {'id': self.cat1.id, 'display_order': 10},
+                {'id': self.cat2.id, 'display_order': 20}
+            ]
+        }, format='json')
+        self.assertEqual(res_orders.status_code, status.HTTP_200_OK)
+        self.cat1.refresh_from_db()
+        self.cat2.refresh_from_db()
+        self.assertEqual(self.cat1.display_order, 10)
+        self.assertEqual(self.cat2.display_order, 20)
+
+    def test_featured_categories_flow(self):
+        # 1. Admin toggles featured status of category
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(f'/api/v1/categories/{self.cat1.slug}/toggle_featured/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(res.data['is_featured'])
+        self.cat1.refresh_from_db()
+        self.assertTrue(self.cat1.is_featured)
+
+        # 2. Category list / featured endpoint returns featured category
+        res_featured = self.client.get('/api/v1/categories/featured/')
+        self.assertEqual(res_featured.status_code, status.HTTP_200_OK)
+        slugs = [c['slug'] for c in res_featured.data]
+        self.assertIn(self.cat1.slug, slugs)
+
+        # 3. Magazine home feed contains featured_categories
+        res_feed = self.client.get('/api/v1/articles/magazine_home/')
+        self.assertEqual(res_feed.status_code, status.HTTP_200_OK)
+        self.assertIn('featured_categories', res_feed.data)
+        feed_slugs = [c['slug'] for c in res_feed.data['featured_categories']]
+        self.assertIn(self.cat1.slug, feed_slugs)
+
+    def test_author_profile_and_detail_flow(self):
+        # 1. Author profile auto-created
+        self.assertTrue(hasattr(self.writer, 'profile'))
+
+        # 2. Public author detail retrieve by username
+        res_author = self.client.get(f'/api/v1/authors/{self.writer.username}/')
+        self.assertEqual(res_author.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_author.data['username'], self.writer.username)
+        self.assertEqual(res_author.data['articles_count'], 1)
+        self.assertIn('profile', res_author.data)
+
+        # 3. Author can customize own profile via /api/v1/authors/me/
+        self.client.force_authenticate(user=self.writer)
+        update_payload = {
+            'first_name': 'আহমেদ',
+            'last_name': 'রশীদ',
+            'profile': {
+                'display_name': 'আহমেদ রশীদ',
+                'designation': 'প্রধান সাহিত্য সম্পাদক',
+                'bio': 'শিল্প ও সাহিত্য বিষয়ক অনুসন্ধানী লেখক।',
+                'location': 'ঢাকা, বাংলাদেশ',
+                'twitter_url': 'https://twitter.com/ahmedrashid',
+                'website': 'https://madstory.com'
+            }
+        }
+        res_update = self.client.patch('/api/v1/authors/me/', update_payload, format='json')
+        self.assertEqual(res_update.status_code, status.HTTP_200_OK)
+        self.assertEqual(res_update.data['profile']['display_name'], 'আহমেদ রশীদ')
+        self.assertEqual(res_update.data['profile']['designation'], 'প্রধান সাহিত্য সম্পাদক')
+
+        # 4. Filter articles by author
+        res_arts = self.client.get(f'/api/v1/articles/?author={self.writer.username}')
+        self.assertEqual(res_arts.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res_arts.data.get('results', [])), 1)
+
+        # 5. Author articles sub-endpoint
+        res_sub_arts = self.client.get(f'/api/v1/authors/{self.writer.username}/articles/')
+        self.assertEqual(res_sub_arts.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res_sub_arts.data.get('results', [])), 1)
+

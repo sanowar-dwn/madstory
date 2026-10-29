@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from django.utils.text import slugify
 from django.utils import timezone
 from ckeditor.fields import RichTextField
@@ -14,8 +16,13 @@ class Category(models.Model):
     )
     description = models.TextField(blank=True, default='')
     description_en = models.TextField(blank=True, default='')
+    thumbnail = models.CharField(max_length=600, blank=True, default='', help_text="Category thumbnail image URL for cards, homepage, and lists")
+    thumbnail_image = models.ImageField(upload_to='categories/thumbnails/', blank=True, null=True, help_text="Category thumbnail image file")
+    banner = models.CharField(max_length=600, blank=True, default='', help_text="Category wide banner image URL for category detail header page")
+    banner_image = models.ImageField(upload_to='categories/banners/', blank=True, null=True, help_text="Category banner image file")
     display_order = models.PositiveIntegerField(default=0)
     is_nav_visible = models.BooleanField(default=True)
+    is_featured = models.BooleanField(default=False, help_text="Designate as featured category on homepage")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -30,6 +37,26 @@ class Category(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name, allow_unicode=True) or f"category-{timezone.now().timestamp()}"
+        if self.thumbnail_image:
+            try:
+                self.thumbnail = self.thumbnail_image.url
+            except Exception:
+                pass
+        if self.thumbnail:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.thumbnail.startswith(prefix):
+                    self.thumbnail = self.thumbnail[len(prefix):]
+                    break
+        if self.banner_image:
+            try:
+                self.banner = self.banner_image.url
+            except Exception:
+                pass
+        if self.banner:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.banner.startswith(prefix):
+                    self.banner = self.banner[len(prefix):]
+                    break
         super().save(*args, **kwargs)
 
 
@@ -89,9 +116,24 @@ class Article(models.Model):
 
     @property
     def image(self):
+        url = ''
         if self.cover_image:
-            return self.cover_image.url
-        return self.cover_image_url or '/assets/images/18-1024x678.jpg'
+            try:
+                url = self.cover_image.url
+            except Exception:
+                url = ''
+        elif self.cover_image_url:
+            url = self.cover_image_url
+
+        if not url:
+            return '/assets/images/18-1024x678.jpg'
+
+        for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+            if url.startswith(prefix):
+                url = url[len(prefix):]
+                break
+
+        return url or '/assets/images/18-1024x678.jpg'
 
     @property
     def hearts_count(self):
@@ -104,6 +146,11 @@ class Article(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title, allow_unicode=True) or f"post-{timezone.now().timestamp()}"
+        if self.cover_image_url:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.cover_image_url.startswith(prefix):
+                    self.cover_image_url = self.cover_image_url[len(prefix):]
+                    break
         super().save(*args, **kwargs)
 
 
@@ -168,7 +215,11 @@ class HomepageCustomization(models.Model):
     art_culture_title_bn = models.CharField(max_length=100, default='শিল্প ও সংস্কৃতি')
     art_culture_title_en = models.CharField(max_length=100, default='Art & Culture')
 
+    featured_categories_title_bn = models.CharField(max_length=150, default='ফিচার্ড ক্যাটাগরি')
+    featured_categories_title_en = models.CharField(max_length=150, default='Featured Categories')
+
     show_hero = models.BooleanField(default=True)
+    show_featured_categories = models.BooleanField(default=True)
     show_lead = models.BooleanField(default=True)
     show_art_culture = models.BooleanField(default=True)
     show_category_blocks = models.BooleanField(default=True)
@@ -186,6 +237,7 @@ class SiteSetting(models.Model):
     tagline_en = models.CharField(max_length=255, default='A Quarterly Magazine on Art, Literature, Culture & Modern Lifestyle')
     logo_en_url = models.CharField(max_length=500, default='/assets/images/Madstory-logo.png')
     logo_bn_url = models.CharField(max_length=500, default='/assets/images/Madstory-logo-bangla.png')
+    footer_logo_url = models.CharField(max_length=500, default='/assets/images/Madstory-logo.png', blank=True)
     facebook_url = models.URLField(blank=True, default='https://facebook.com/themadstory')
     twitter_url = models.URLField(blank=True, default='https://twitter.com/themadstory')
     instagram_url = models.URLField(blank=True, default='https://instagram.com/themadstory')
@@ -262,3 +314,100 @@ class HeroSlide(models.Model):
 
     def __str__(self):
         return self.title
+
+
+class AuthorProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    display_name = models.CharField(max_length=150, blank=True, default='', help_text="Display name / Pen name (Bengali or English)")
+    display_name_en = models.CharField(max_length=150, blank=True, default='', help_text="Display name in English")
+    designation = models.CharField(max_length=150, blank=True, default='লেখক ও সাংবাদিক', help_text="Role or title in Bengali")
+    designation_en = models.CharField(max_length=150, blank=True, default='Author & Contributor', help_text="Role or title in English")
+    bio = models.TextField(blank=True, default='', help_text="Biography in Bengali")
+    bio_en = models.TextField(blank=True, default='', help_text="Biography in English")
+    avatar = models.CharField(max_length=600, blank=True, default='', help_text="Avatar image URL")
+    avatar_image = models.ImageField(upload_to='profiles/avatars/', blank=True, null=True, help_text="Avatar image upload")
+    cover_image = models.CharField(max_length=600, blank=True, default='', help_text="Banner cover image URL")
+    cover_image_file = models.ImageField(upload_to='profiles/covers/', blank=True, null=True, help_text="Banner cover image upload")
+    location = models.CharField(max_length=150, blank=True, default='ঢাকা, বাংলাদেশ')
+    location_en = models.CharField(max_length=150, blank=True, default='Dhaka, Bangladesh')
+    website = models.URLField(blank=True, default='')
+    facebook_url = models.URLField(blank=True, default='')
+    twitter_url = models.URLField(blank=True, default='')
+    instagram_url = models.URLField(blank=True, default='')
+    linkedin_url = models.URLField(blank=True, default='')
+    github_url = models.URLField(blank=True, default='')
+    is_featured = models.BooleanField(default=False, help_text="Featured author status")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Author Profile'
+        verbose_name_plural = 'Author Profiles'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Profile of {self.user.username}"
+
+    @property
+    def effective_avatar(self):
+        url = ''
+        if self.avatar_image:
+            try:
+                url = self.avatar_image.url
+            except Exception:
+                url = ''
+        elif self.avatar:
+            url = self.avatar
+        if url:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if url.startswith(prefix):
+                    url = url[len(prefix):]
+                    break
+        return url
+
+    @property
+    def effective_cover(self):
+        url = ''
+        if self.cover_image_file:
+            try:
+                url = self.cover_image_file.url
+            except Exception:
+                url = ''
+        elif self.cover_image:
+            url = self.cover_image
+        if url:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if url.startswith(prefix):
+                    url = url[len(prefix):]
+                    break
+        return url
+
+    def save(self, *args, **kwargs):
+        if self.avatar_image:
+            try:
+                self.avatar = self.avatar_image.url
+            except Exception:
+                pass
+        if self.cover_image_file:
+            try:
+                self.cover_image = self.cover_image_file.url
+            except Exception:
+                pass
+        if self.avatar:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.avatar.startswith(prefix):
+                    self.avatar = self.avatar[len(prefix):]
+                    break
+        if self.cover_image:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.cover_image.startswith(prefix):
+                    self.cover_image = self.cover_image[len(prefix):]
+                    break
+        super().save(*args, **kwargs)
+
+
+@receiver(post_save, sender=User)
+def create_or_update_author_profile(sender, instance, created, **kwargs):
+    if created:
+        AuthorProfile.objects.get_or_create(user=instance)
+

@@ -177,6 +177,16 @@ else:
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# ------------------------------------------------------------------------------
+# Upload / Request Size Limits
+# ------------------------------------------------------------------------------
+# Google Docs pastes produce verbose HTML with inline styles; raise the in-memory
+# limit so large blog bodies are accepted without a 500 error.
+# DATA_UPLOAD_MAX_MEMORY_SIZE controls non-file POST data (default: 2.5 MB).
+# FILE_UPLOAD_MAX_MEMORY_SIZE controls file uploads held in memory (default: 2.5 MB).
+DATA_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('DATA_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024))  # 10 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = int(os.environ.get('FILE_UPLOAD_MAX_MEMORY_SIZE', 10 * 1024 * 1024))  # 10 MB
+
 from datetime import timedelta
 
 # Django REST Framework configuration
