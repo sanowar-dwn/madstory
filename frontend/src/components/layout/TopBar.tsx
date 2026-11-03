@@ -8,7 +8,7 @@ import { useLanguage } from '../../context/LanguageContext';
 interface TopBarProps {
   settings?: SiteSetting;
   onOpenSearch: () => void;
-  onToggleMobileMenu: () => void;
+  onToggleMobileMenu?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ settings, onOpenSearch, onToggleMobileMenu }) => {
@@ -22,18 +22,10 @@ export const TopBar: React.FC<TopBarProps> = ({ settings, onOpenSearch, onToggle
   return (
     <div className="bg-[#fcfbf9] border-b border-[#e8e4dc] text-xs text-gray-700 py-1.5 px-4 sticky top-0 z-40">
       <div className="madstory-container flex items-center justify-between gap-4">
-        {/* Left: Mobile Toggle & Breaking Ticker */}
+        {/* Left: Breaking Ticker */}
         <div className="flex items-center gap-3 overflow-hidden flex-1">
-          <button
-            onClick={onToggleMobileMenu}
-            className="md:hidden p-1 text-gray-700 hover:text-[#800020] transition"
-            aria-label="মেনু খুলুন"
-          >
-            <Menu className="w-4 h-4" />
-          </button>
-
           {/* Ticker badge */}
-          <div className="hidden sm:flex items-center gap-1.5 flex-shrink-0 bg-[#800020] text-white px-2 py-0.5 rounded text-[10px] font-bengali font-bold tracking-wider">
+          <div className="flex items-center gap-1.5 flex-shrink-0 bg-[#800020] text-white px-2 py-0.5 rounded text-[10px] font-bengali font-bold tracking-wider">
             <span>{t('nav.breaking')}</span>
           </div>
 
@@ -60,16 +52,21 @@ export const TopBar: React.FC<TopBarProps> = ({ settings, onOpenSearch, onToggle
           </button>
 
           {/* User Account / Auth Dropdown */}
-          {user ? (
+          {user && (user.username || user.email || user.first_name) ? (
             <div className="flex items-center gap-2 border-l border-gray-200 pl-2">
               <Link
-                to="/dashboard"
+                to={`/author/${user.username}`}
                 className="flex items-center gap-1.5 font-bengali text-xs text-gray-800 hover:text-[#800020] transition font-semibold"
+                title="আমার লেখক প্রোফাইল"
               >
-                <span className="w-5 h-5 rounded-full bg-[#800020] text-white flex items-center justify-center text-[10px]">
-                  {user.username.charAt(0).toUpperCase()}
+                <span className="w-5 h-5 rounded-full bg-[#800020] text-white flex items-center justify-center text-[10px] overflow-hidden">
+                  {user.profile?.avatar ? (
+                    <img src={user.profile.avatar} alt={user.username} className="w-full h-full object-cover" />
+                  ) : (
+                    (user.profile?.display_name || user.username || user.first_name || 'U').charAt(0).toUpperCase()
+                  )}
                 </span>
-                <span className="hidden sm:inline">{user.username}</span>
+                <span className="hidden sm:inline">{user.profile?.display_name || user.first_name || user.username}</span>
               </Link>
               <Link
                 to="/dashboard"

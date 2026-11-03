@@ -34,6 +34,9 @@ export const LeadHeroSection: React.FC<LeadHeroSectionProps> = ({
   const displayColtiTitle = coltiTitle || t('section.trending');
   const displayNirbachitoTitle = nirbachitoTitle || t('section.choice');
 
+  // Hide the entire section if both lists are empty — no fallback to random articles
+  if (coltiArticles.length === 0 && nirbachitoArticles.length === 0) return null;
+
   return (
     <section className="">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
@@ -47,7 +50,8 @@ export const LeadHeroSection: React.FC<LeadHeroSectionProps> = ({
                 {displayColtiTitle}
               </h3>
             </div>
-            {/* Slider controls */}
+            {/* Slider controls — only shown when there are articles */}
+            {coltiArticles.length > 0 && (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setActiveColti((prev) => (prev - 1 + coltiArticles.length) % coltiArticles.length)}
@@ -67,12 +71,25 @@ export const LeadHeroSection: React.FC<LeadHeroSectionProps> = ({
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+            )}
           </div>
 
-          {/* Active Colti Card */}
-          {currentColti && (
+          {/* Active Colti Card — or empty state */}
+          {coltiArticles.length === 0 || !currentColti ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-16 px-6 text-center text-gray-400">
+              <span className="w-2.5 h-2.5 rounded-full bg-gray-300 mb-4 mx-auto" />
+              <p className="text-sm font-bengali font-semibold text-gray-500">
+                {lang === 'en' ? 'No trending articles yet' : 'এখনো কোনো চলতি প্রবন্ধ নেই'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1 font-sans">
+                {lang === 'en'
+                  ? 'Mark articles as "Trending" from the dashboard to feature them here.'
+                  : 'ড্যাশবোর্ড থেকে প্রবন্ধে "Trending" ব্যাজ দিন।'}
+              </p>
+            </div>
+          ) : (
             <div className="flex flex-col flex-1 p-5">
-              <div className="relative h-64 sm:h-72 w-full rounded overflow-hidden img-zoom-wrapper mb-4">
+              <div className="relative aspect-[4/3] w-full rounded overflow-hidden img-zoom-wrapper mb-4">
                 <Link to={`/post/${currentColti.slug}`}>
                   <img
                     src={currentColti.image}
@@ -106,7 +123,13 @@ export const LeadHeroSection: React.FC<LeadHeroSectionProps> = ({
               {/* Author & reading time */}
               <div className="flex items-center gap-2 text-xs text-gray-500 font-bengali mb-3">
                 <User className="w-3.5 h-3.5 text-gray-400" />
-                <span>{currentColti.author_name}</span>
+                {currentColti.author?.username ? (
+                  <Link to={`/author/${currentColti.author.username}`} className="hover:text-[#800020] transition">
+                    {currentColti.author.name || currentColti.author_name}
+                  </Link>
+                ) : (
+                  <span>{currentColti.author_name}</span>
+                )}
                 <span>•</span>
                 <span>{currentColti.reading_time || '৬ মিনিট পাঠ'}</span>
               </div>
@@ -161,49 +184,69 @@ export const LeadHeroSection: React.FC<LeadHeroSectionProps> = ({
             </Link>
           </div>
 
-          {/* 2x2 Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 flex-1">
-            {nirbachitoArticles.slice(0, 4).map((art) => {
-              const displayTitle = (lang === 'en' && art.title_en) ? art.title_en : art.title;
+          {/* 2x2 Grid or empty state */}
+          {nirbachitoArticles.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-16 px-6 text-center text-gray-400">
+              <Sparkles className="w-5 h-5 text-gray-300 mb-3 mx-auto" />
+              <p className="text-sm font-bengali font-semibold text-gray-500">
+                {lang === 'en' ? "No editor's choice articles yet" : 'এখনো কোনো নির্বাচিত প্রবন্ধ নেই'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1 font-sans">
+                {lang === 'en'
+                  ? 'Mark articles as "Choice" from the dashboard to feature them here.'
+                  : 'ড্যাশবোর্ড থেকে প্রবন্ধে "Choice" ব্যাজ দিন।'}
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 flex-1">
+              {nirbachitoArticles.slice(0, 4).map((art) => {
+                const displayTitle = (lang === 'en' && art.title_en) ? art.title_en : art.title;
 
-              return (
-                <div
-                  key={art.id}
-                  className="flex flex-col group border border-[#f0ebe1] rounded p-2.5 hover:border-[#800020]/30 hover:shadow-xs transition"
-                >
-                  <div className="relative h-28 w-full rounded overflow-hidden img-zoom-wrapper mb-2">
-                    <Link to={`/post/${art.slug}`}>
-                      <img
-                        src={art.image}
-                        alt={displayTitle}
-                        className="w-full h-full object-cover"
-                      />
-                    </Link>
-                    <div className="absolute top-1 right-1">
-                      <HeartButton
-                        slug={art.slug}
-                        initialHearted={art.is_hearted}
-                        initialCount={art.hearts_count}
-                        size="sm"
-                      />
+                return (
+                  <div
+                    key={art.id}
+                    className="flex flex-col group border border-[#f0ebe1] rounded p-2.5 hover:border-[#800020]/30 hover:shadow-xs transition"
+                  >
+                    <div className="relative aspect-[4/3] w-full rounded overflow-hidden img-zoom-wrapper mb-2">
+                      <Link to={`/post/${art.slug}`}>
+                        <img
+                          src={art.image}
+                          alt={displayTitle}
+                          className="w-full h-full object-cover"
+                        />
+                      </Link>
+                      <div className="absolute top-1 right-1">
+                        <HeartButton
+                          slug={art.slug}
+                          initialHearted={art.is_hearted}
+                          initialCount={art.hearts_count}
+                          size="sm"
+                        />
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bengali font-bold text-[#800020] block mb-1">
+                      {art.category_name || 'শিল্প ও সংস্কৃতি'}
+                    </span>
+                    <h4 className="text-xs font-bengali font-bold text-gray-800 group-hover:text-[#800020] transition line-clamp-2 leading-snug flex-1">
+                      <Link to={`/post/${art.slug}`}>
+                        {displayTitle}
+                      </Link>
+                    </h4>
+                    <div className="text-[10px] text-gray-400 font-sans mt-2 pt-1 border-t border-gray-100 flex items-center justify-between">
+                      {art.author?.username ? (
+                        <Link to={`/author/${art.author.username}`} className="hover:text-[#800020] transition truncate max-w-[120px]">
+                          {art.author.name || art.author_name}
+                        </Link>
+                      ) : (
+                        <span>{art.author_name}</span>
+                      )}
+                      <span className="font-bengali">{art.reading_time || '৪ মিনিট'}</span>
                     </div>
                   </div>
-                  <span className="text-[10px] font-bengali font-bold text-[#800020] block mb-1">
-                    {art.category_name || 'শিল্প ও সংস্কৃতি'}
-                  </span>
-                  <h4 className="text-xs font-bengali font-bold text-gray-800 group-hover:text-[#800020] transition line-clamp-2 leading-snug flex-1">
-                    <Link to={`/post/${art.slug}`}>
-                      {displayTitle}
-                    </Link>
-                  </h4>
-                  <div className="text-[10px] text-gray-400 font-sans mt-2 pt-1 border-t border-gray-100 flex items-center justify-between">
-                    <span>{art.author_name}</span>
-                    <span className="font-bengali">{art.reading_time || '৪ মিনিট'}</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </section>

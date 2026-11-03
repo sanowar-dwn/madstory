@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Facebook, Instagram, Twitter, Youtube, ChevronLeft, ChevronRight, TrendingUp } from 'lucide-react';
+import { Facebook, Instagram, Twitter, Youtube, ChevronLeft, ChevronRight, TrendingUp, Sparkles } from 'lucide-react';
 import { Article, Category } from '../../types';
 import { NewsletterBox } from '../ui/NewsletterBox';
+import { useLanguage } from '../../context/LanguageContext';
 
 interface SidebarProps {
   sliderArticles?: Article[];
@@ -16,16 +17,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   categories = [],
 }) => {
   const [activeSlide, setActiveSlide] = useState(0);
+  const { lang, t } = useLanguage();
 
   const currentSliderArt = sliderArticles[activeSlide] || sliderArticles[0];
 
   return (
     <aside className="space-y-8">
-      {/* 1. Mini Post Slider Widget */}
+      {/* 1. Mini Post Slider Widget: বিশেষ ফিচার (Special Featured) */}
       {currentSliderArt && (
         <div className="bg-white border border-[#e2ddd3] rounded-sm overflow-hidden shadow-madstory">
           <div className="bg-[#f4eee6] border-b border-[#ded7cc] px-4 py-2 flex items-center justify-between">
-            <h4 className="font-bengali font-bold text-sm text-[#1e2022]">বিশেষ ফিচার</h4>
+            <h4 className="font-bengali font-bold text-sm text-[#1e2022] flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-[#800020]" />
+              <span>{lang === 'en' ? 'Special Featured' : 'বিশেষ ফিচার'}</span>
+            </h4>
             {sliderArticles.length > 1 && (
               <div className="flex items-center gap-1">
                 <button
@@ -44,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </div>
 
-          <div className="relative h-44 w-full img-zoom-wrapper">
+          <div className="relative aspect-[4/3] w-full img-zoom-wrapper overflow-hidden">
             <Link to={`/post/${currentSliderArt.slug}`}>
               <img
                 src={currentSliderArt.image}
@@ -61,7 +66,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </Link>
             </h5>
             <span className="text-[11px] text-gray-400 font-sans">
-              {currentSliderArt.author_name} • <span className="font-bengali">{currentSliderArt.reading_time || '৪ মিনিট'}</span>
+              {currentSliderArt.author?.username ? (
+                <Link to={`/author/${currentSliderArt.author.username}`} className="hover:text-[#800020] transition">
+                  {currentSliderArt.author.name || currentSliderArt.author_name}
+                </Link>
+              ) : (
+                currentSliderArt.author_name
+              )} • <span className="font-bengali">{currentSliderArt.reading_time || '৪ মিনিট'}</span>
             </span>
           </div>
         </div>

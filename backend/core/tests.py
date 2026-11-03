@@ -344,3 +344,128 @@ class MadStoryProductionTests(TestCase):
         self.assertEqual(res_sub_arts.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(len(res_sub_arts.data.get('results', [])), 1)
 
+    def test_blog_post_meta_view_for_social_sharing(self):
+        """
+        Verify that sharing blog detail page link renders dynamic OpenGraph and Twitter
+        meta tags with the blog's title, thumbnail image, and excerpt.
+        """
+        # 1. HTML view for crawlers
+        res = self.client.get(f'/post/{self.article.slug}/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        content = res.content.decode('utf-8')
+        self.assertIn('<meta property="og:title" content="টেস্ট আর্টিকেল এক"', content)
+        self.assertIn('<meta name="twitter:title" content="টেস্ট আর্টিকেল এক"', content)
+        self.assertIn('<meta property="og:image"', content)
+        self.assertIn('<meta name="twitter:image"', content)
+        self.assertIn('<meta property="og:type" content="article"', content)
+
+        # 2. JSON endpoint
+        res_json = self.client.get(f'/api/v1/posts/{self.article.slug}/meta/', HTTP_ACCEPT='application/json')
+        self.assertEqual(res_json.status_code, status.HTTP_200_OK)
+        data = res_json.json()
+        self.assertEqual(data['title'], 'টেস্ট আর্টিকেল এক')
+        self.assertTrue(data['image'].startswith('http'))
+
+    def test_superadmin_can_create_author_with_profile(self):
+        """
+        Verify that super admins can create authors with author profile attributes.
+        """
+        self.client.force_authenticate(user=self.admin)
+        author_payload = {
+            'username': 'new_author_nazrul',
+            'email': 'nazrul@test.com',
+            'password': 'authorpass123',
+            'first_name': 'কাজী',
+            'last_name': 'নজরুল ইসলাম',
+            'display_name': 'কাজী নজরুল ইসলাম',
+            'display_name_en': 'Kazi Nazrul Islam',
+            'designation': 'জাতীয় কবি ও সাহিত্যিক',
+            'designation_en': 'Rebel Poet & Columnist',
+            'bio': 'বিদ্রোহী কবি ও প্রাবন্ধিক।',
+            'bio_en': 'National poet and essayist.',
+            'location': 'ঢাকা, বাংলাদেশ',
+            'website': 'https://nazrul.example.com',
+            'is_staff': False
+        }
+        res = self.client.post('/api/v1/admin/users/', author_payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        user_id = res.data['id']
+
+        user_obj = User.objects.get(id=user_id)
+        self.assertEqual(user_obj.username, 'new_author_nazrul')
+        self.assertEqual(user_obj.profile.display_name, 'কাজী নজরুল ইসলাম')
+        self.assertEqual(user_obj.profile.designation, 'জাতীয় কবি ও সাহিত্যিক')
+        self.assertEqual(user_obj.profile.bio, 'বিদ্রোহী কবি ও প্রাবন্ধিক।')
+        self.assertFalse(user_obj.is_staff)
+
+    def test_superadmin_can_select_author_when_creating_article(self):
+        """
+        Verify that super admins can select another author when creating an article,
+        and that author_name is automatically synced with the selected author's display name.
+        """
+        # Create an author with display name
+        author = User.objects.create_user('tahsin_author', 'tahsin@test.com', 'pass123')
+        author.profile.display_name = 'তাহসিন আহমেদ'
+        author.profile.save()
+
+        self.client.force_authenticate(user=self.admin)
+        article_payload = {
+            'title': 'শিল্পের নন্দনতত্ত্ব ও ভবিষ্যৎ',
+            'title_en': 'Aesthetics and Future of Art',
+            'category_ids': [self.cat1.id],
+            'excerpt': 'শিল্প সম্পর্কিত নিবন্ধ',
+            'content': '<p>শিল্পের বিস্তারিত আলোচনা...</p>',
+            'author_id': author.id,
+            'status': 'published'
+        }
+        res = self.client.post('/api/v1/articles/', article_payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        slug = res.data['slug']
+
+        created_article = Article.objects.get(slug=slug)
+        self.assertEqual(created_article.author, author)
+        self.assertEqual(created_article.author_name, 'তাহসিন আহমেদ')
+
+    def test_superadmin_can_update_article_author(self):
+        """
+        Verify that super admins can reassign article author on update.
+        """
+        new_author = User.objects.create_user('rafiq_author', 'rafiq@test.com', 'pass123')
+        new_author.profile.display_name = 'রফিক হাসান'
+        new_author.profile.save()
+
+        self.client.force_authenticate(user=self.admin)
+        update_payload = {
+            'author_id': new_author.id
+        }
+        res = self.client.patch(f'/api/v1/articles/{self.article.slug}/', update_payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        self.article.refresh_from_db()
+        self.assertEqual(self.article.author, new_author)
+        self.assertEqual(self.article.author_name, 'রফিক হাসান')
+
+    def test_non_staff_cannot_spoof_author(self):
+        """
+        Verify regular non-staff contributors cannot override the article author.
+        """
+        self.client.force_authenticate(user=self.writer)
+        another_author = User.objects.create_user('victim_author', 'victim@test.com', 'pass123')
+        another_author.profile.display_name = 'ভিক্টিম লেখক'
+        another_author.profile.save()
+
+        article_payload = {
+            'title': 'লেখকের নিজের প্রবন্ধ',
+            'category_ids': [self.cat1.id],
+            'excerpt': 'সারাংশ',
+            'content': '<p>কন্টেন্ট...</p>',
+            'author_id': another_author.id
+        }
+        res = self.client.post('/api/v1/articles/', article_payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        slug = res.data['slug']
+
+        created_article = Article.objects.get(slug=slug)
+        # Should remain self.writer, NOT another_author
+        self.assertEqual(created_article.author, self.writer)
+

@@ -47,7 +47,7 @@ export const CardGridBlock: React.FC<CardGridBlockProps> = ({
               className="magazine-card group flex flex-col"
             >
               {/* Flush Image */}
-              <div className="relative h-44 w-full overflow-hidden img-zoom-wrapper border-b border-[#e2ddd3]">
+              <div className="relative aspect-[4/3] w-full overflow-hidden img-zoom-wrapper border-b border-[#e2ddd3]">
                 <Link to={`/post/${art.slug}`}>
                   <img
                     src={art.image}
@@ -90,7 +90,13 @@ export const CardGridBlock: React.FC<CardGridBlockProps> = ({
 
                 {/* Footer Meta */}
                 <div className="flex items-center justify-between text-[11px] text-gray-400 font-sans pt-1">
-                  <span className="truncate max-w-[120px]">{art.author_name}</span>
+                  {art.author?.username ? (
+                    <Link to={`/author/${art.author.username}`} className="truncate max-w-[120px] hover:text-[#800020] transition">
+                      {art.author.name || art.author_name}
+                    </Link>
+                  ) : (
+                    <span className="truncate max-w-[120px]">{art.author_name}</span>
+                  )}
                   <span className="font-bengali">{art.reading_time || '৪ মিনিট'}</span>
                 </div>
               </div>

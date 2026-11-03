@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   UploadCloud, Image as ImageIcon, X, ExternalLink, Loader2,
-  CheckCircle2, AlertCircle, Link as LinkIcon, RefreshCw
+  CheckCircle2, AlertCircle, Link as LinkIcon, RefreshCw,
+  Crop, Maximize2
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { useLanguage } from '../../context/LanguageContext';
@@ -13,7 +14,8 @@ export interface ImageUploadProps {
   label?: string;
   required?: boolean;
   helperText?: string;
-  aspectRatio?: 'video' | 'square' | 'banner' | 'auto';
+  aspectRatio?: 'video' | 'square' | 'banner' | 'auto' | 'standard' | '4/3';
+  optimalDimensions?: string;
   presets?: { label: string; url: string }[];
   className?: string;
 }
@@ -25,6 +27,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   required = false,
   helperText,
   aspectRatio = 'video',
+  optimalDimensions,
   presets = [],
   className = '',
 }) => {
@@ -36,13 +39,45 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
+  const [loadedDimensions, setLoadedDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  const defaultDimensions: Record<string, string> = {
+    video: lang === 'en' ? '1200 × 675 px (16:9)' : '১২০০ × ৬৭৫ px (১৬:৯)',
+    banner: lang === 'en' ? '1920 × 800 px (~21:9)' : '১৯২০ × ৮০০ px (২১:৯)',
+    square: lang === 'en' ? '800 × 800 px (1:1)' : '৮০০ × ৮০০ px (১:১)',
+    '4/3': lang === 'en' ? '1200 × 900 px (4:3)' : '১২০০ × ৯০০ px (৪:৩)',
+    standard: lang === 'en' ? '1200 × 900 px (4:3)' : '১২০০ × ৯০০ px (৪:৩)',
+    auto: lang === 'en' ? '400 × 120 px' : '৪০০ × ১২০ px',
+  };
+
+  const resolvedOptimalDimensions = optimalDimensions || defaultDimensions[aspectRatio];
+
+  useEffect(() => {
+    if (!value) {
+      setLoadedDimensions(null);
+      return;
+    }
+    let isMounted = true;
+    const img = new window.Image();
+    img.onload = () => {
+      if (isMounted) {
+        setLoadedDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+      }
+    };
+    img.src = value;
+    return () => {
+      isMounted = false;
+    };
+  }, [value]);
 
   const aspectClass = {
     video: 'aspect-video',
     square: 'aspect-square',
     banner: 'aspect-[21/9]',
+    '4/3': 'aspect-[4/3]',
+    standard: 'aspect-[4/3]',
     auto: 'h-48',
-  }[aspectRatio];
+  }[aspectRatio] || 'aspect-[4/3]';
 
   const handleFileProcess = async (file: File) => {
     setErrorMsg('');
@@ -121,10 +156,21 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
     <div className={`space-y-2 font-sans ${className}`}>
       {/* Label & Header */}
       {label && (
-        <div className="flex items-center justify-between">
-          <label className="block font-bold text-gray-700 text-xs">
-            {label} {required && <span className="text-[#800020]">*</span>}
-          </label>
+        <div className="flex flex-wrap items-center justify-between gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="block font-bold text-gray-700 text-xs">
+              {label} {required && <span className="text-[#800020]">*</span>}
+            </label>
+            {resolvedOptimalDimensions && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80 shadow-2xs"
+                title={lang === 'en' ? 'Optimal dimensions for best display quality' : 'সর্বোত্তম প্রদর্শনের জন্য প্রস্তাবিত সাইজ'}
+              >
+                <Crop className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                <span>{lang === 'en' ? 'Optimal:' : 'সাইজ:'} <strong>{resolvedOptimalDimensions}</strong></span>
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setShowUrlInput(!showUrlInput)}
@@ -190,6 +236,18 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
             <span>{value.includes('r2.cloudflarestorage') || value.includes('r2.dev') ? 'Cloudflare R2 Storage' : 'Media Storage Active'}</span>
           </div>
 
+          {/* Top Optimal / Detected Dimensions Badge */}
+          {resolvedOptimalDimensions && (
+            <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 bg-black/75 backdrop-blur-xs text-white text-[10px] font-medium px-2.5 py-1 rounded-full shadow">
+              <Maximize2 className="w-3 h-3 text-amber-400 shrink-0" />
+              <span>
+                {loadedDimensions ? `${loadedDimensions.width} × ${loadedDimensions.height} px` : ''}
+                {loadedDimensions ? ' • ' : ''}
+                <span className="text-amber-200">{lang === 'en' ? 'Optimal:' : 'টার্গেট:'} {resolvedOptimalDimensions}</span>
+              </span>
+            </div>
+          )}
+
           {/* Overlay Actions */}
           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2.5 p-4">
             <button
@@ -222,18 +280,36 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
             </button>
           </div>
 
-          {/* Bottom URL chip */}
-          <div className="p-2 bg-white border-t border-[#ded7cc] flex items-center justify-between text-[11px] text-gray-600">
-            <span className="truncate max-w-[80%]" title={value}>
-              {value}
-            </span>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="text-[#800020] font-semibold hover:underline"
-            >
-              {lang === 'en' ? 'Upload New' : 'নতুন আপলোড'}
-            </button>
+          {/* Bottom URL chip & Dimensions Bar */}
+          <div className="p-2 bg-white border-t border-[#ded7cc] flex flex-wrap items-center justify-between gap-1 text-[11px] text-gray-600">
+            <div className="flex items-center gap-2 max-w-[70%]">
+              <span className="truncate" title={value}>
+                {value}
+              </span>
+              {loadedDimensions && (
+                <span
+                  className="shrink-0 px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 font-mono text-[10px] border border-gray-200"
+                  title={lang === 'en' ? 'Actual image dimensions' : 'ছবির প্রকৃত সাইজ'}
+                >
+                  {loadedDimensions.width} × {loadedDimensions.height} px
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {resolvedOptimalDimensions && (
+                <span className="text-[10px] text-amber-900 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded hidden sm:inline-flex items-center gap-1 font-medium">
+                  <Crop className="w-2.5 h-2.5 text-amber-700" />
+                  <span>{resolvedOptimalDimensions}</span>
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-[#800020] font-semibold hover:underline"
+              >
+                {lang === 'en' ? 'Upload New' : 'নতুন আপলোড'}
+              </button>
+            </div>
           </div>
         </div>
       ) : (
@@ -264,11 +340,20 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
               <div className="w-12 h-12 rounded-full bg-white border border-[#ded7cc] flex items-center justify-center text-[#800020] shadow-2xs">
                 <UploadCloud className="w-6 h-6" />
               </div>
-              <div>
+              <div className="space-y-1">
                 <p className="text-xs font-bold text-gray-800">
                   {lang === 'en' ? 'Click to upload image or drag & drop' : 'ছবি আপলোড করতে ক্লিক করুন অথবা টেনে আনুন'}
                 </p>
-                <p className="text-[11px] text-gray-500 mt-0.5">
+                {resolvedOptimalDimensions && (
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-50/90 border border-amber-200 text-amber-900 text-[11px] font-semibold shadow-2xs">
+                    <Crop className="w-3 h-3 text-amber-700 shrink-0" />
+                    <span>
+                      {lang === 'en' ? 'Optimal Dimensions:' : 'অনুকূল সাইজ:'}{' '}
+                      <strong className="font-bold">{resolvedOptimalDimensions}</strong>
+                    </span>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-500">
                   WEBP, PNG, JPG, GIF, SVG (Max 15MB) • Stored on Cloudflare R2
                 </p>
               </div>

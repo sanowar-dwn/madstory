@@ -17,7 +17,16 @@
   RewriteCond %{REQUEST_URI} ^/static/
   RewriteRule ^ - [L]
 
-  # 4. Route all other requests to React index.html for SPA client-side routing
+  # 3b. Route media file requests to backend API
+  RewriteRule ^media/(.*)$ https://api.themadstory.com/media/$1 [R=301,L]
+
+  # 4. Social Media Crawlers (Facebook, WhatsApp, Twitter, LinkedIn, Telegram, Discord, etc.)
+  # Serve dynamic OpenGraph & Twitter Card tags with blog thumbnail and title
+  RewriteCond %{HTTP_USER_AGENT} (facebookexternalhit|Facebot|Twitterbot|WhatsApp|LinkedInBot|TelegramBot|Discordbot|Slackbot|Pinterest|SkypeUriPreview|Googlebot) [NC]
+  RewriteCond %{REQUEST_URI} ^/post/([^/]+)/?$ [NC]
+  RewriteRule ^post/([^/]+)/?$ preview.php?slug=$1 [L,QSA]
+
+  # 5. Route all other requests to React index.html for SPA client-side routing
   RewriteRule ^ index.html [L]
 </IfModule>
 

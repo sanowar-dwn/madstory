@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { X, ChevronDown, Facebook, Instagram, Twitter, Youtube, Globe, LayoutDashboard } from 'lucide-react';
+import { X, ChevronDown, Facebook, Instagram, Twitter, Youtube, Globe, LayoutDashboard, User } from 'lucide-react';
 import { Category, SiteSetting } from '../../types';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -12,20 +12,92 @@ interface MobileDrawerProps {
   settings?: SiteSetting;
 }
 
+const MobileDrawerCategoryItem: React.FC<{
+  category: Category;
+  depth?: number;
+  expandedSlugs: Set<string>;
+  onToggle: (slug: string) => void;
+  onClose: () => void;
+  lang: string;
+}> = ({ category, depth = 0, expandedSlugs, onToggle, onClose, lang }) => {
+  const hasSubs = category.subcategories && category.subcategories.length > 0;
+  const isExpanded = expandedSlugs.has(category.slug);
+  const catName = lang === 'en' && category.name_en ? category.name_en : category.name;
+
+  return (
+    <li className={`${depth === 0 ? 'border-b border-gray-100 last:border-b-0 pb-1' : ''}`}>
+      <div className="flex items-center justify-between">
+        <Link
+          to={`/category/${category.slug}`}
+          onClick={onClose}
+          style={{ paddingLeft: `${depth * 14 + 12}px` }}
+          className={`py-2 pr-2 text-gray-800 hover:text-[#800020] flex-1 ${
+            depth === 0 ? 'font-medium text-sm' : 'text-xs text-gray-700'
+          }`}
+        >
+          {depth > 0 && <span className="text-gray-400 mr-1.5">•</span>}
+          {catName}
+        </Link>
+        {hasSubs && (
+          <button
+            type="button"
+            onClick={() => onToggle(category.slug)}
+            className="p-2 text-gray-400 hover:text-gray-700 cursor-pointer"
+          >
+            <ChevronDown
+              className={`w-4 h-4 transition-transform duration-200 ${
+                isExpanded ? 'rotate-180 text-[#800020]' : ''
+              }`}
+            />
+          </button>
+        )}
+      </div>
+
+      {hasSubs && isExpanded && (
+        <ul
+          className={`pr-2 py-1 space-y-0.5 rounded text-xs text-gray-600 font-normal ${
+            depth === 0 ? 'bg-[#faf7f2]' : 'bg-black/[0.02]'
+          }`}
+        >
+          {category.subcategories!.map((sub) => (
+            <MobileDrawerCategoryItem
+              key={sub.slug}
+              category={sub}
+              depth={depth + 1}
+              expandedSlugs={expandedSlugs}
+              onToggle={onToggle}
+              onClose={onClose}
+              lang={lang}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+};
+
 export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   isOpen,
   onClose,
   categories,
   settings,
 }) => {
-  const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  const [expandedSlugs, setExpandedSlugs] = useState<Set<string>>(new Set());
   const { lang, toggleLang, t } = useLanguage();
   const { user, openAuthModal, logout } = useAuth();
 
   if (!isOpen) return null;
 
   const toggleCat = (slug: string) => {
-    setExpandedCat(prev => (prev === slug ? null : slug));
+    setExpandedSlugs((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) {
+        next.delete(slug);
+      } else {
+        next.add(slug);
+      }
+      return next;
+    });
   };
 
   const copyright = lang === 'en'
@@ -116,68 +188,40 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
             </li>
 
             {user && (
-              <li>
-                <Link
-                  to="/dashboard"
-                  onClick={onClose}
-                  className="flex items-center gap-2 py-2 px-3 text-[#800020] bg-rose-50 hover:bg-rose-100 rounded"
-                >
-                  <LayoutDashboard className="w-4 h-4" />
-                  <span>{t('nav.dashboard')}</span>
-                </Link>
-              </li>
+              <>
+                <li>
+                  <Link
+                    to={`/author/${user.username}`}
+                    onClick={onClose}
+                    className="flex items-center gap-2 py-2 px-3 text-gray-800 hover:bg-[#f7f2eb] rounded"
+                  >
+                    <User className="w-4 h-4 text-[#800020]" />
+                    <span>{lang === 'en' ? 'My Profile' : 'আমার প্রোফাইল'}</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/dashboard"
+                    onClick={onClose}
+                    className="flex items-center gap-2 py-2 px-3 text-[#800020] bg-rose-50 hover:bg-rose-100 rounded"
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    <span>{t('nav.dashboard')}</span>
+                  </Link>
+                </li>
+              </>
             )}
 
-            {categories.map((cat) => {
-              const hasSubs = cat.subcategories && cat.subcategories.length > 0;
-              const isExpanded = expandedCat === cat.slug;
-              const catName = lang === 'en' && cat.name_en ? cat.name_en : cat.name;
-
-              return (
-                <li key={cat.slug} className="border-b border-gray-100 last:border-b-0 pb-1">
-                  <div className="flex items-center justify-between">
-                    <Link
-                      to={`/category/${cat.slug}`}
-                      onClick={onClose}
-                      className="py-2 px-3 text-gray-800 hover:text-[#800020] flex-1"
-                    >
-                      {catName}
-                    </Link>
-                    {hasSubs && (
-                      <button
-                        onClick={() => toggleCat(cat.slug)}
-                        className="p-2 text-gray-400 hover:text-gray-700"
-                      >
-                        <ChevronDown
-                          className={`w-4 h-4 transition-transform duration-200 ${
-                            isExpanded ? 'rotate-180 text-[#800020]' : ''
-                          }`}
-                        />
-                      </button>
-                    )}
-                  </div>
-
-                  {hasSubs && isExpanded && (
-                    <ul className="pl-6 pr-2 py-1 space-y-1 bg-[#faf7f2] rounded text-xs text-gray-600 font-normal">
-                      {cat.subcategories.map((sub) => {
-                        const subName = lang === 'en' && sub.name_en ? sub.name_en : sub.name;
-                        return (
-                          <li key={sub.slug}>
-                            <Link
-                              to={`/category/${sub.slug}`}
-                              onClick={onClose}
-                              className="block py-1.5 hover:text-[#800020]"
-                            >
-                              • {subName}
-                            </Link>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
+            {categories.map((cat) => (
+              <MobileDrawerCategoryItem
+                key={cat.slug}
+                category={cat}
+                expandedSlugs={expandedSlugs}
+                onToggle={toggleCat}
+                onClose={onClose}
+                lang={lang}
+              />
+            ))}
 
             <li>
               <Link

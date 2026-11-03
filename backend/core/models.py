@@ -5,6 +5,34 @@ from django.dispatch import receiver
 from django.utils.text import slugify
 from django.utils import timezone
 from ckeditor.fields import RichTextField
+import re
+import unicodedata
+from .transliterate import transliterate_to_english_slug
+
+
+def generate_clean_slug(text, max_words=7, max_chars=75):
+    """
+    Generates a 100% clean English ASCII slug.
+    Transliterates Bengali text to English phonetic characters, ensuring
+    URLs never contain non-ASCII characters or percent-encoding (%).
+    """
+    return transliterate_to_english_slug(text, max_words=max_words, max_chars=max_chars)
+
+
+
+def make_unique_slug(model_cls, base_slug, instance_id=None, fallback_prefix='post'):
+    if not base_slug:
+        base_slug = f"{fallback_prefix}-{int(timezone.now().timestamp())}"
+    slug = base_slug
+    counter = 1
+    qs = model_cls.objects.all()
+    if instance_id:
+        qs = qs.exclude(id=instance_id)
+    while qs.filter(slug=slug).exists():
+        counter += 1
+        slug = f"{base_slug[:80]}-{counter}"
+    return slug
+
 
 
 class Category(models.Model):
@@ -35,8 +63,11 @@ class Category(models.Model):
         return self.name
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.name, allow_unicode=True) or f"category-{timezone.now().timestamp()}"
+        # Guarantee 100% English ASCII slug
+        if not self.slug or not all(ord(c) < 128 for c in self.slug):
+            source_name = self.name_en.strip() if (self.name_en and self.name_en.strip()) else self.name
+            base = generate_clean_slug(source_name, max_words=6, max_chars=60)
+            self.slug = make_unique_slug(Category, base, self.id, fallback_prefix='category')
         if self.thumbnail_image:
             try:
                 self.thumbnail = self.thumbnail_image.url
@@ -144,8 +175,11 @@ class Article(models.Model):
         return self.comments.filter(is_approved=True).count()
 
     def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.title, allow_unicode=True) or f"post-{timezone.now().timestamp()}"
+        # Guarantee 100% English ASCII slug
+        if not self.slug or not all(ord(c) < 128 for c in self.slug):
+            source_title = self.title_en.strip() if (self.title_en and self.title_en.strip()) else self.title
+            base = generate_clean_slug(source_title, max_words=7, max_chars=75)
+            self.slug = make_unique_slug(Article, base, self.id, fallback_prefix='post')
         if self.cover_image_url:
             for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
                 if self.cover_image_url.startswith(prefix):
@@ -193,6 +227,7 @@ class HomepageCustomization(models.Model):
     nirbachito_articles = models.ManyToManyField(Article, blank=True, related_name='custom_nirbachito')
     art_culture_articles = models.ManyToManyField(Article, blank=True, related_name='custom_art_culture')
     featured_categories = models.ManyToManyField(Category, blank=True, related_name='custom_categories')
+    category_blocks = models.ManyToManyField(Category, blank=True, related_name='custom_category_blocks')
 
     ticker_text_bn = models.CharField(
         max_length=500,

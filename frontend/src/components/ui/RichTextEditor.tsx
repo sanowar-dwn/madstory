@@ -3,7 +3,7 @@ import {
   Bold, Italic, Underline, Strikethrough, Heading2, Heading3,
   Quote, List, ListOrdered, Link as LinkIcon, Image as ImageIcon,
   Code, Eye, Edit3, RotateCcw, Minus, UploadCloud, Loader2, X,
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, Crop, Maximize2
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { api } from '../../services/api';
@@ -37,6 +37,25 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   const [imageCaption, setImageCaption] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [uploadedImgDims, setUploadedImgDims] = useState<{ width: number; height: number } | null>(null);
+
+  useEffect(() => {
+    if (!imageUrl) {
+      setUploadedImgDims(null);
+      return;
+    }
+    let isMounted = true;
+    const img = new window.Image();
+    img.onload = () => {
+      if (isMounted) {
+        setUploadedImgDims({ width: img.naturalWidth, height: img.naturalHeight });
+      }
+    };
+    img.src = imageUrl;
+    return () => {
+      isMounted = false;
+    };
+  }, [imageUrl]);
 
   useEffect(() => {
     if (editorRef.current && viewMode === 'editor') {
@@ -68,6 +87,7 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
     setImageUrl('');
     setImageCaption('');
     setUploadError('');
+    setUploadedImgDims(null);
     setImageModalOpen(true);
   };
 
@@ -381,20 +401,27 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
 
             {/* Dropzone or Preview */}
             {imageUrl ? (
-              <div className="relative rounded border border-[#ded7cc] overflow-hidden bg-gray-900">
+              <div className="relative rounded border border-[#ded7cc] overflow-hidden bg-gray-900 shadow-xs">
                 <img
                   src={imageUrl}
                   alt="Uploaded"
                   className="w-full h-44 object-cover"
                 />
-                <div className="absolute top-2 left-2 bg-black/70 text-emerald-400 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-semibold">
+                <div className="absolute top-2 left-2 bg-black/70 backdrop-blur-xs text-emerald-400 text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-semibold shadow">
                   <CheckCircle2 className="w-3 h-3" />
                   <span>Cloudflare R2 Storage</span>
+                </div>
+                <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[10px] px-2 py-0.5 rounded flex items-center gap-1 font-medium shadow">
+                  <Maximize2 className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>
+                    {uploadedImgDims ? `${uploadedImgDims.width} × ${uploadedImgDims.height} px • ` : ''}
+                    <span className="text-amber-200">{lang === 'en' ? 'Optimal: 1200 × 675 px' : 'অনুকূল: ১২০০ × ৬৭৫ px'}</span>
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="absolute bottom-2 right-2 px-2.5 py-1 bg-white/90 hover:bg-white text-gray-900 text-[11px] font-semibold rounded shadow"
+                  className="absolute bottom-2 right-2 px-2.5 py-1 bg-white/90 hover:bg-white text-gray-900 text-[11px] font-semibold rounded shadow transition"
                 >
                   {lang === 'en' ? 'Change Image' : 'ছবি পরিবর্তন'}
                 </button>
@@ -414,11 +441,18 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
                 ) : (
                   <>
                     <UploadCloud className="w-8 h-8 text-[#800020]" />
-                    <p className="text-xs font-semibold text-gray-800">
+                    <p className="text-xs font-bold text-gray-800">
                       {lang === 'en' ? 'Click to upload from device' : 'ডিভাইস থেকে ছবি আপলোড করতে ক্লিক করুন'}
                     </p>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold shadow-2xs">
+                      <Crop className="w-3 h-3 text-amber-700 shrink-0" />
+                      <span>
+                        {lang === 'en' ? 'Optimal Dimensions:' : 'অনুকূল সাইজ:'}{' '}
+                        <strong>{lang === 'en' ? '1200 × 675 px (or width ≥ 800 px)' : '১২০০ × ৬৭৫ px (বা প্রস্থ ≥ ৮০০ px)'}</strong>
+                      </span>
+                    </div>
                     <span className="text-[10px] text-gray-500">
-                      PNG, JPG, WEBP, GIF (Max 15MB)
+                      PNG, JPG, WEBP, GIF (Max 15MB) • Stored on Cloudflare R2
                     </span>
                   </>
                 )}

@@ -98,12 +98,46 @@ class UserSerializer(serializers.ModelSerializer):
 
 class AdminUserCreateUpdateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True, min_length=6)
+    display_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    display_name_en = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    designation = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    designation_en = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    bio = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    bio_en = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    avatar = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    avatar_image = serializers.ImageField(required=False, allow_null=True, write_only=True)
+    cover_image = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    cover_image_file = serializers.ImageField(required=False, allow_null=True, write_only=True)
+    location = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    location_en = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    website = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    facebook_url = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    twitter_url = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    instagram_url = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    linkedin_url = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    github_url = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    is_featured = serializers.BooleanField(required=False, write_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'first_name', 'last_name', 'is_staff', 'is_superuser', 'is_active']
+        fields = [
+            'id', 'username', 'email', 'password', 'first_name', 'last_name',
+            'is_staff', 'is_superuser', 'is_active',
+            'display_name', 'display_name_en', 'designation', 'designation_en',
+            'bio', 'bio_en', 'avatar', 'avatar_image', 'cover_image', 'cover_image_file',
+            'location', 'location_en', 'website', 'facebook_url', 'twitter_url',
+            'instagram_url', 'linkedin_url', 'github_url', 'is_featured'
+        ]
 
     def create(self, validated_data):
+        profile_fields = [
+            'display_name', 'display_name_en', 'designation', 'designation_en',
+            'bio', 'bio_en', 'avatar', 'avatar_image', 'cover_image', 'cover_image_file',
+            'location', 'location_en', 'website', 'facebook_url', 'twitter_url',
+            'instagram_url', 'linkedin_url', 'github_url', 'is_featured'
+        ]
+        profile_data = {f: validated_data.pop(f) for f in profile_fields if f in validated_data}
+
         password = validated_data.pop('password', None)
         user = User(**validated_data)
         if password:
@@ -111,16 +145,44 @@ class AdminUserCreateUpdateSerializer(serializers.ModelSerializer):
         else:
             user.set_unusable_password()
         user.save()
+
+        profile, _ = AuthorProfile.objects.get_or_create(user=user)
+        if not profile_data.get('display_name'):
+            full_name = f"{user.first_name} {user.last_name}".strip()
+            profile_data['display_name'] = full_name or user.username
+
+        for attr, value in profile_data.items():
+            setattr(profile, attr, value)
+        profile.save()
+
         return user
 
     def update(self, instance, validated_data):
+        profile_fields = [
+            'display_name', 'display_name_en', 'designation', 'designation_en',
+            'bio', 'bio_en', 'avatar', 'avatar_image', 'cover_image', 'cover_image_file',
+            'location', 'location_en', 'website', 'facebook_url', 'twitter_url',
+            'instagram_url', 'linkedin_url', 'github_url', 'is_featured'
+        ]
+        profile_data = {f: validated_data.pop(f) for f in profile_fields if f in validated_data}
+
         password = validated_data.pop('password', None)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if password:
             instance.set_password(password)
         instance.save()
+
+        if profile_data:
+            profile, _ = AuthorProfile.objects.get_or_create(user=instance)
+            for attr, value in profile_data.items():
+                setattr(profile, attr, value)
+            profile.save()
+
         return instance
+
+    def to_representation(self, instance):
+        return UserSerializer(instance, context=self.context).data
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -148,12 +210,12 @@ class SubCategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = [
             'id', 'name', 'name_en', 'slug', 'description', 'description_en',
-            'thumbnail', 'banner', 'display_order', 'is_nav_visible', 'is_featured', 'articles_count'
+            'thumbnail', 'banner', 'parent', 'display_order', 'is_nav_visible', 'is_featured', 'articles_count'
         ]
 
 
 class CategorySerializer(serializers.ModelSerializer):
-    subcategories = SubCategorySerializer(many=True, read_only=True)
+    subcategories = serializers.SerializerMethodField()
     articles_count = serializers.IntegerField(source='articles.count', read_only=True)
 
     class Meta:
@@ -171,6 +233,29 @@ class CategorySerializer(serializers.ModelSerializer):
             'banner': {'required': False, 'allow_blank': True},
             'banner_image': {'required': False, 'allow_null': True}
         }
+
+    def get_subcategories(self, obj):
+        path_ids = self.context.get('_cat_path_ids')
+        if path_ids is None:
+            path_ids = set()
+        if obj.id in path_ids:
+            return []
+        new_path = path_ids | {obj.id}
+        new_context = {**self.context, '_cat_path_ids': new_path}
+        subs = obj.subcategories.all().order_by('display_order', 'name')
+        return CategorySerializer(subs, many=True, context=new_context).data
+
+    def validate(self, attrs):
+        parent = attrs.get('parent')
+        if self.instance and parent:
+            if parent.id == self.instance.id:
+                raise serializers.ValidationError({"parent": "A category cannot be its own parent."})
+            curr = parent
+            while curr.parent:
+                if curr.parent.id == self.instance.id:
+                    raise serializers.ValidationError({"parent": "Cannot set parent to a descendant category (circular loop)."})
+                curr = curr.parent
+        return super().validate(attrs)
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -342,16 +427,21 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
     category_ids = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all(), many=True, write_only=True, required=False
     )
+    author_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='author', required=False, allow_null=True, write_only=True
+    )
+    author = AuthorSummarySerializer(read_only=True)
+    author_name = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = Article
         fields = [
-            'id', 'title', 'title_en', 'slug', 'category_ids', 'excerpt', 'excerpt_en',
-            'content', 'content_en', 'cover_image', 'cover_image_url',
+            'id', 'title', 'title_en', 'slug', 'category_ids', 'author', 'author_id', 'author_name',
+            'excerpt', 'excerpt_en', 'content', 'content_en', 'cover_image', 'cover_image_url',
             'reading_time', 'reading_time_en', 'status',
             'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice'
         ]
-        read_only_fields = ['id', 'slug']
+        read_only_fields = ['id', 'slug', 'author']
 
     def create(self, validated_data):
         category_ids = validated_data.pop('category_ids', [])
@@ -366,16 +456,25 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
             validated_data.pop('is_colti_trending', None)
             validated_data.pop('is_nirbachito_choice', None)
 
-        author_name = 'The Mad Story Desk'
-        if user:
-            profile = getattr(user, 'profile', None)
-            if profile and profile.display_name:
-                author_name = profile.display_name
+        target_author = user
+        if user and user.is_staff and 'author' in validated_data:
+            target_author = validated_data.pop('author')
+        else:
+            validated_data.pop('author', None)
+
+        author_name = validated_data.pop('author_name', None)
+        if not author_name:
+            if target_author:
+                profile = getattr(target_author, 'profile', None)
+                if profile and profile.display_name:
+                    author_name = profile.display_name
+                else:
+                    author_name = target_author.get_full_name() or target_author.username
             else:
-                author_name = user.get_full_name() or user.username
+                author_name = 'The Mad Story Desk'
 
         article = Article.objects.create(
-            author=user,
+            author=target_author,
             author_name=author_name,
             status=status,
             **validated_data
@@ -405,6 +504,26 @@ class ArticleWriteSerializer(serializers.ModelSerializer):
             validated_data.pop('is_featured_hero', None)
             validated_data.pop('is_colti_trending', None)
             validated_data.pop('is_nirbachito_choice', None)
+
+        # Allow super admins / staff to reassign author
+        if user and user.is_staff:
+            if 'author' in validated_data:
+                target_author = validated_data.pop('author')
+                instance.author = target_author
+                if 'author_name' not in validated_data:
+                    if target_author:
+                        profile = getattr(target_author, 'profile', None)
+                        if profile and profile.display_name:
+                            instance.author_name = profile.display_name
+                        else:
+                            instance.author_name = target_author.get_full_name() or target_author.username
+                    else:
+                        instance.author_name = 'The Mad Story Desk'
+            if 'author_name' in validated_data:
+                instance.author_name = validated_data.pop('author_name')
+        else:
+            validated_data.pop('author', None)
+            validated_data.pop('author_name', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -441,14 +560,15 @@ class HomepageCustomizationSerializer(serializers.ModelSerializer):
     nirbachito_article_details = ArticleListSerializer(source='nirbachito_articles', many=True, read_only=True)
     art_culture_article_details = ArticleListSerializer(source='art_culture_articles', many=True, read_only=True)
     featured_category_details = CategorySerializer(source='featured_categories', many=True, read_only=True)
+    category_block_details = CategorySerializer(source='category_blocks', many=True, read_only=True)
 
     class Meta:
         model = HomepageCustomization
         fields = [
             'id', 'hero_articles', 'colti_articles', 'nirbachito_articles',
-            'art_culture_articles', 'featured_categories',
+            'art_culture_articles', 'featured_categories', 'category_blocks',
             'hero_article_details', 'colti_article_details', 'nirbachito_article_details',
-            'art_culture_article_details', 'featured_category_details',
+            'art_culture_article_details', 'featured_category_details', 'category_block_details',
             'ticker_text_bn', 'ticker_text_en', 'hero_title_bn', 'hero_title_en',
             'colti_title_bn', 'colti_title_en', 'nirbachito_title_bn', 'nirbachito_title_en',
             'art_culture_title_bn', 'art_culture_title_en',

@@ -5,11 +5,68 @@ export interface Category {
   slug: string;
   description?: string;
   description_en?: string;
+  thumbnail?: string;
+  banner?: string;
   parent?: number | null;
   subcategories?: Category[];
   display_order: number;
   is_nav_visible: boolean;
+  is_featured?: boolean;
   articles_count?: number;
+}
+
+export interface AuthorProfile {
+  id?: number;
+  display_name?: string;
+  display_name_en?: string;
+  designation?: string;
+  designation_en?: string;
+  bio?: string;
+  bio_en?: string;
+  avatar?: string;
+  avatar_image?: string;
+  cover_image?: string;
+  cover_image_file?: string;
+  effective_avatar?: string;
+  effective_cover?: string;
+  location?: string;
+  location_en?: string;
+  website?: string;
+  facebook_url?: string;
+  twitter_url?: string;
+  instagram_url?: string;
+  linkedin_url?: string;
+  github_url?: string;
+  is_featured?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AuthorSummary {
+  id: number;
+  username: string;
+  name: string;
+  avatar?: string;
+  cover_image?: string;
+  designation?: string;
+  designation_en?: string;
+  bio?: string;
+  bio_en?: string;
+}
+
+export interface AuthorDetail {
+  id: number;
+  username: string;
+  name: string;
+  first_name?: string;
+  last_name?: string;
+  date_joined?: string;
+  is_staff?: boolean;
+  profile: AuthorProfile;
+  articles_count: number;
+  total_views: number;
+  total_hearts: number;
+  recent_articles?: Article[];
 }
 
 export interface User {
@@ -23,6 +80,7 @@ export interface User {
   is_active?: boolean;
   date_joined?: string;
   articles_count?: number;
+  profile?: AuthorProfile;
 }
 
 export interface AuthTokens {
@@ -62,6 +120,8 @@ export interface Article {
   content?: string;
   content_en?: string;
   image: string;
+  author?: AuthorSummary;
+  author_id?: number | null;
   author_name: string;
   reading_time: string;
   reading_time_en?: string;
@@ -76,6 +136,33 @@ export interface Article {
   comments_count: number;
   is_hearted: boolean;
   related_articles?: Article[];
+}
+
+export interface CreateAuthorPayload {
+  username: string;
+  email?: string;
+  password?: string;
+  first_name?: string;
+  last_name?: string;
+  display_name?: string;
+  display_name_en?: string;
+  designation?: string;
+  designation_en?: string;
+  bio?: string;
+  bio_en?: string;
+  avatar?: string;
+  cover_image?: string;
+  location?: string;
+  location_en?: string;
+  website?: string;
+  facebook_url?: string;
+  twitter_url?: string;
+  instagram_url?: string;
+  linkedin_url?: string;
+  github_url?: string;
+  is_featured?: boolean;
+  is_staff?: boolean;
+  is_active?: boolean;
 }
 
 export interface Comment {
@@ -100,11 +187,13 @@ export interface HomepageCustomization {
   nirbachito_articles: number[];
   art_culture_articles: number[];
   featured_categories: number[];
+  category_blocks?: number[];
   hero_article_details?: Article[];
   colti_article_details?: Article[];
   nirbachito_article_details?: Article[];
   art_culture_article_details?: Article[];
   featured_category_details?: Category[];
+  category_block_details?: Category[];
   ticker_text_bn: string;
   ticker_text_en: string;
   hero_title_bn: string;
@@ -115,7 +204,10 @@ export interface HomepageCustomization {
   nirbachito_title_en: string;
   art_culture_title_bn: string;
   art_culture_title_en: string;
+  featured_categories_title_bn?: string;
+  featured_categories_title_en?: string;
   show_hero: boolean;
+  show_featured_categories?: boolean;
   show_lead: boolean;
   show_art_culture: boolean;
   show_category_blocks: boolean;
@@ -130,6 +222,7 @@ export interface SiteSetting {
   tagline_en: string;
   logo_en_url: string;
   logo_bn_url: string;
+  footer_logo_url?: string;
   facebook_url: string;
   twitter_url: string;
   instagram_url: string;
@@ -174,6 +267,7 @@ export interface HomeFeedPayload {
   nirbachito: Article[];
   popular: Article[];
   recent: Article[];
+  featured_categories?: Category[];
 }
 
 export interface DashboardStats {

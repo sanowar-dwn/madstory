@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import { TopBar } from './components/layout/TopBar';
-import { Header } from './components/layout/Header';
 import { Navbar } from './components/layout/Navbar';
 import { Footer } from './components/layout/Footer';
 import { MobileDrawer } from './components/layout/MobileDrawer';
@@ -10,10 +9,12 @@ import { AuthModal } from './components/ui/AuthModal';
 import { HomePage } from './pages/HomePage';
 import { PostDetailPage } from './pages/PostDetailPage';
 import { CategoryPage } from './pages/CategoryPage';
+import { CategoriesPage } from './pages/CategoriesPage';
 import { AboutPage } from './pages/AboutPage';
 import { ContactPage } from './pages/ContactPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { AuthorDetailPage } from './pages/AuthorDetailPage';
 import { api } from './services/api';
 import { Category, SiteSetting, Article } from './types';
 import { AuthProvider } from './context/AuthContext';
@@ -65,14 +66,15 @@ const AppContent: React.FC = () => {
       <TopBar
         settings={settings}
         onOpenSearch={() => setSearchOpen(true)}
-        onToggleMobileMenu={() => setMobileMenuOpen(true)}
       />
 
-      {/* 2. Brand Header with Dual Logo Flipper */}
-      <Header settings={settings} />
-
-      {/* 3. Primary Sticky Navigation with Write Blog trigger */}
-      <Navbar categories={categories} />
+      {/* 2. Primary Navigation Bar with Brand Logo in the same line */}
+      <Navbar
+        categories={categories}
+        settings={settings}
+        onOpenSearch={() => setSearchOpen(true)}
+        onToggleMobileMenu={() => setMobileMenuOpen(true)}
+      />
 
       {/* 4. Main Page View with Error Boundary Isolation */}
       <main className="flex-1">
@@ -82,11 +84,13 @@ const AppContent: React.FC = () => {
         >
           <Routes>
             <Route path="/" element={<HomePage categories={categories} />} />
-            <Route path="/post/:slug" element={<PostDetailPage />} />
+            <Route path="/post/:slug" element={<PostDetailPage categories={categories} />} />
             <Route path="/category/:slug" element={<CategoryPage categories={categories} />} />
+            <Route path="/categories" element={<CategoriesPage categories={categories} />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/author/:username" element={<AuthorDetailPage />} />
+            <Route path="/dashboard/*" element={<DashboardPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </ErrorBoundary>

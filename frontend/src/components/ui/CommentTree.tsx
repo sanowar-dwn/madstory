@@ -81,13 +81,13 @@ export const CommentTree: React.FC<CommentTreeProps> = ({ articleSlug }) => {
       </div>
 
       {/* Top Comment Form */}
-      {user ? (
+      {user && (user.username || user.first_name || user.email) ? (
         <form onSubmit={handlePostTopComment} className="mb-8 p-4 bg-[#fbf9f6] border border-[#ded7cc] rounded-sm">
           <div className="flex items-center gap-2 mb-2 font-bengali text-xs text-gray-700">
             <span className="w-6 h-6 rounded-full bg-[#800020] text-white flex items-center justify-center font-bold text-[10px]">
-              {user.username.charAt(0).toUpperCase()}
+              {(user.username || user.first_name || user.email || 'U').charAt(0).toUpperCase()}
             </span>
-            <span className="font-semibold">{user.username} হিসেবে মন্তব্য করছেন</span>
+            <span className="font-semibold">{user.username || user.first_name || user.email || 'ইউজার'} হিসেবে মন্তব্য করছেন</span>
           </div>
 
           <textarea
@@ -213,14 +213,14 @@ const CommentNode: React.FC<CommentNodeProps> = ({
       <div className="flex items-start gap-3 p-3.5 bg-white border border-[#e2ddd3] rounded-sm shadow-xs">
         {/* Avatar */}
         <div className="w-8 h-8 rounded-full bg-[#f4eee6] border border-[#ded7cc] text-[#800020] flex items-center justify-center font-bold text-xs flex-shrink-0">
-          {comment.user_name.charAt(0).toUpperCase()}
+          {(comment.user_name || 'A').charAt(0).toUpperCase()}
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-1">
             <div className="flex items-center gap-2">
-              <span className="font-semibold text-xs text-gray-900 font-sans">{comment.user_name}</span>
+              <span className="font-semibold text-xs text-gray-900 font-sans">{comment.user_name || 'Anonymous'}</span>
               <span className="text-[10px] text-gray-400 font-bengali">• {formattedDate}</span>
             </div>
 

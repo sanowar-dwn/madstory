@@ -23,6 +23,10 @@ ALLOWED_HOSTS = [h.strip() for h in os.environ.get(
     'themadstory.com,www.themadstory.com,api.themadstory.com,localhost,127.0.0.1,0.0.0.0'
 ).split(',') if h.strip()]
 
+# Domain URLs for OpenGraph sharing & canonical redirects
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://themadstory.com')
+BACKEND_URL = os.environ.get('BACKEND_URL', 'https://api.themadstory.com')
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

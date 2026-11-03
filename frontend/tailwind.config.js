@@ -29,8 +29,11 @@ export default {
       boxShadow: {
         'madstory': '0 1px 3px rgba(0, 0, 0, 0.04)',
         'madstory-hover': '0 6px 16px rgba(0, 0, 0, 0.08)',
+      },
+      aspectRatio: {
+        '4/3': '4 / 3',
       }
     },
   },
   plugins: [],
-}
+};

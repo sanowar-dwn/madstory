@@ -37,9 +37,9 @@ export const Footer: React.FC<FooterProps> = ({
         <div className="madstory-container flex flex-col items-center">
           <Link to="/" className="inline-block mb-2">
             <img
-              src="/assets/images/Madstory-logo.png"
-              alt="The Mad Story"
-              className="h-10 w-auto object-contain brightness-0 invert opacity-90 hover:opacity-100 transition"
+              src={settings?.footer_logo_url || settings?.logo_en_url || '/assets/images/Madstory-logo.png'}
+              alt={settings?.site_name || 'The Mad Story'}
+              className="h-10 w-auto object-contain opacity-90 hover:opacity-100 transition"
             />
           </Link>
           <p className={`max-w-md text-gray-400 text-xs ${lang === 'bn' ? 'font-bengali' : 'font-sans'}`}>

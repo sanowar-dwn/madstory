@@ -88,7 +88,7 @@ class CommentAdmin(admin.ModelAdmin):
 @admin.register(HomepageCustomization)
 class HomepageCustomizationAdmin(admin.ModelAdmin):
     list_display = ('__str__', 'updated_at', 'show_hero', 'show_featured_categories', 'show_lead', 'show_art_culture')
-    filter_horizontal = ('hero_articles', 'colti_articles', 'nirbachito_articles', 'art_culture_articles', 'featured_categories')
+    filter_horizontal = ('hero_articles', 'colti_articles', 'nirbachito_articles', 'art_culture_articles', 'featured_categories', 'category_blocks')
 
     def has_add_permission(self, request):
         return not HomepageCustomization.objects.exists()

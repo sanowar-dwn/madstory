@@ -22,7 +22,7 @@ const translations: Record<string, { bn: string; en: string }> = {
   'nav.breaking': { bn: 'চলতি খবর', en: 'Trending' },
   'nav.viewAll': { bn: 'সব দেখুন', en: 'View All' },
   'nav.all': { bn: 'সব', en: 'All' },
-  'nav.writeBlog': { bn: 'ব্লগ লিখুন', en: 'Write Blog' },
+  'nav.writeBlog': { bn: 'আর্টিকেল লিখুন', en: 'Write Article' },
 
   // Sections
   'section.trending': { bn: 'চলতি', en: 'Trending' },
@@ -32,6 +32,14 @@ const translations: Record<string, { bn: string; en: string }> = {
   'section.popular': { bn: 'জনপ্রিয় লেখা', en: 'Popular Articles' },
   'section.categories': { bn: 'ক্যাটাগরি', en: 'Categories' },
   'section.featured': { bn: 'বিশেষ ফিচার', en: 'Featured Story' },
+  'section.featuredCategories': { bn: 'ফিচার্ড ক্যাটাগরি', en: 'Featured Categories' },
+  'section.featuredCategoriesDesc': { bn: 'ম্যাগাজিনের বিশেষ বিষয়ভিত্তিক সংকলন ও বিভাগসমূহ', en: 'Curated topics & thematic sections of The Mad Story' },
+  'categoriesPage.title': { bn: 'সকল ক্যাটাগরি ও বিষয়সূচি', en: 'All Categories & Editorial Archive' },
+  'categoriesPage.subtitle': { bn: 'শিল্প, সাহিত্য, সংস্কৃতি ও সমকালীন জীবনধারার সমস্ত বিভাগ এক নজরে অন্বেষণ করুন', en: 'Explore all departments, curated themes, and creative writing sections of The Mad Story magazine.' },
+  'categoriesPage.searchPlaceholder': { bn: 'ক্যাটাগরি বা বিভাগ খুঁজুন...', en: 'Search categories or topics...' },
+  'categoriesPage.all': { bn: 'সকল বিভাগ', en: 'All Categories' },
+  'categoriesPage.subcategories': { bn: 'উপ-বিভাগসমূহ', en: 'Subcategories' },
+  'categoriesPage.noResults': { bn: 'কোনো ক্যাটাগরি খুঁজে পাওয়া যায়নি', en: 'No matching categories found' },
   'section.readMore': { bn: 'সম্পূর্ণ পড়ুন →', en: 'Read More →' },
   'section.related': { bn: 'সম্পর্কিত অন্যান্য লেখা', en: 'Related Stories' },
 
@@ -93,7 +101,7 @@ const translations: Record<string, { bn: string; en: string }> = {
   // Dashboard
   'dash.title': { bn: 'ম্যাগাজিন ড্যাশবোর্ড', en: 'Magazine Dashboard' },
   'dash.overview': { bn: 'সারসংক্ষেপ', en: 'Overview' },
-  'dash.write': { bn: 'নতুন ব্লগ লিখুন', en: 'Write Blog' },
+  'dash.write': { bn: 'নতুন আর্টিকেল লিখুন', en: 'Write Article' },
   'dash.myBlogs': { bn: 'আমার ব্লগসমূহ', en: 'My Articles' },
   'dash.allArticles': { bn: 'সকল প্রবন্ধ', en: 'All Articles' },
   'dash.approval': { bn: 'অনুমোদন সারি', en: 'Approval Queue' },

@@ -118,7 +118,7 @@ export const SearchModal: React.FC<SearchModalProps> = ({ isOpen, onClose }) => 
                     <img
                       src={art.image}
                       alt={title}
-                      className="w-16 h-12 object-cover rounded flex-shrink-0"
+                      className="w-16 aspect-[4/3] object-cover rounded flex-shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <span className="text-[11px] text-[#800020] font-semibold block truncate">

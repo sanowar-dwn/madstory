@@ -3,16 +3,22 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django.db.models import F, Count, Q
 from django.contrib.auth.models import User
 from django.utils import timezone
-from django.http import Http404
+from django.http import Http404, HttpResponse, JsonResponse
+from django.views import View
+from django.utils.html import strip_tags
+from django.conf import settings
 from django.core.files.storage import default_storage
 from rest_framework_simplejwt.tokens import RefreshToken
 import os
 import uuid
+import html
+import re
 import urllib.parse
 from datetime import datetime
 
@@ -21,6 +27,7 @@ from .models import (
     SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
     AuthorProfile
 )
+from .transliterate import transliterate_to_english_slug
 from .serializers import (
     CategorySerializer, ArticleListSerializer, ArticleDetailSerializer,
     ArticleWriteSerializer, CommentSerializer, CommentCreateSerializer,
@@ -72,6 +79,15 @@ def resolve_slug_candidates(raw_val):
         except Exception:
             pass
 
+    # 4. Transliterate to English (supports backwards compatibility if an old Bengali URL is requested)
+    for s in list(candidates):
+        try:
+            trans = transliterate_to_english_slug(s)
+            if trans and trans not in candidates:
+                candidates.append(trans)
+        except Exception:
+            pass
+
     return candidates
 
 
@@ -102,8 +118,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
         candidates = resolve_slug_candidates(raw_val)
         q_filter = Q(slug__in=candidates)
-        if str(raw_val).isdigit():
-            q_filter |= Q(id=int(raw_val))
+        m = re.match(r'^(\d+)(?:-.*)?$', str(raw_val).strip())
+        if m:
+            q_filter |= Q(id=int(m.group(1)))
 
         obj = queryset.filter(q_filter).first()
         if not obj:
@@ -227,12 +244,20 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return Response({'status': 'ok', 'updated_count': updated_count})
 
 
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 12
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
 class ArticleViewSet(viewsets.ModelViewSet):
     """
     API endpoint for magazine articles.
     Authenticated users can write articles. Staff can approve and manage them.
     """
     queryset = Article.objects.all()
+    serializer_class = ArticleListSerializer
+    pagination_class = StandardResultsSetPagination
     lookup_field = 'slug'
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['slug', 'id', 'categories__slug', 'is_featured_hero', 'is_colti_trending', 'is_nirbachito_choice', 'status', 'author__username']
@@ -248,10 +273,23 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
         candidates = resolve_slug_candidates(raw_val)
         q_filter = Q(slug__in=candidates)
-        if str(raw_val).isdigit():
-            q_filter |= Q(id=int(raw_val))
+        m = re.match(r'^(\d+)(?:-.*)?$', str(raw_val).strip())
+        if m:
+            q_filter |= Q(id=int(m.group(1)))
 
         obj = queryset.filter(q_filter).first()
+        if not obj:
+            # Fallback for legacy URLs (e.g. older shared links using Django's unicode slugify)
+            from django.utils.text import slugify as legacy_slugify
+            for cand in candidates:
+                if not all(ord(ch) < 128 for ch in cand):
+                    for art in queryset:
+                        if legacy_slugify(art.title, allow_unicode=True) == cand:
+                            obj = art
+                            break
+                    if obj:
+                        break
+
         if not obj:
             raise Http404("No Article matches the given query.")
 
@@ -275,7 +313,16 @@ class ArticleViewSet(viewsets.ModelViewSet):
             author_param = self.request.query_params.get('author') or self.request.query_params.get('author__username')
             qs = Article.objects.filter(status='published')
             if category_slug:
-                qs = qs.filter(categories__slug=category_slug)
+                cat_candidates = resolve_slug_candidates(category_slug)
+                target_cats = Category.objects.filter(
+                    Q(slug__in=cat_candidates) |
+                    Q(parent__slug__in=cat_candidates) |
+                    Q(parent__parent__slug__in=cat_candidates)
+                )
+                if target_cats.exists():
+                    qs = qs.filter(categories__in=target_cats)
+                else:
+                    qs = qs.filter(categories__slug__in=cat_candidates)
             if author_param:
                 if str(author_param).isdigit():
                     qs = qs.filter(Q(author__id=int(author_param)) | Q(author__username=author_param))
@@ -296,7 +343,16 @@ class ArticleViewSet(viewsets.ModelViewSet):
                 qs = Article.objects.filter(status='published')
 
             if category_slug:
-                qs = qs.filter(categories__slug=category_slug)
+                cat_candidates = resolve_slug_candidates(category_slug)
+                target_cats = Category.objects.filter(
+                    Q(slug__in=cat_candidates) |
+                    Q(parent__slug__in=cat_candidates) |
+                    Q(parent__parent__slug__in=cat_candidates)
+                )
+                if target_cats.exists():
+                    qs = qs.filter(categories__in=target_cats)
+                else:
+                    qs = qs.filter(categories__slug__in=cat_candidates)
             if author_param:
                 if str(author_param).isdigit():
                     qs = qs.filter(Q(author__id=int(author_param)) | Q(author__username=author_param))
@@ -642,13 +698,15 @@ class CurrentUserView(APIView):
         return Response(UserSerializer(user).data)
 
 
-class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
+class AuthorViewSet(viewsets.ModelViewSet):
     """
     Public API for authors & contributors:
       - /api/authors/ (list authors with articles/profiles)
       - /api/authors/<username>/ (author profile details & stats)
       - /api/authors/<username>/articles/ (paginated articles by author)
       - /api/authors/me/ (current user profile read & customization)
+      - POST /api/authors/ (super admins / staff create authors)
+      - PATCH /api/authors/<username>/ (super admins / staff update author profiles)
     """
     queryset = User.objects.filter(is_active=True).select_related('profile').order_by('-date_joined')
     serializer_class = AuthorDetailSerializer
@@ -656,6 +714,26 @@ class AuthorViewSet(viewsets.ReadOnlyModelViewSet):
     filter_backends = [SearchFilter, OrderingFilter]
     search_fields = ['username', 'first_name', 'last_name', 'profile__display_name', 'profile__display_name_en', 'profile__designation']
     ordering_fields = ['date_joined', 'username']
+
+    @property
+    def paginator(self):
+        if self.request.query_params.get('all') in ['true', '1', 'True']:
+            return None
+        return super().paginator
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return AdminUserCreateUpdateSerializer
+        return AuthorDetailSerializer
+
+    def get_permissions(self):
+        if self.action in ['create', 'destroy']:
+            return [permissions.IsAdminUser()]
+        if self.action in ['update', 'partial_update']:
+            return [permissions.IsAdminUser()]
+        if self.action in ['me']:
+            return [permissions.IsAuthenticated()]
+        return [permissions.AllowAny()]
 
     def get_object(self):
         queryset = self.filter_queryset(self.get_queryset())
@@ -840,11 +918,17 @@ class NewsletterSubscriberCreateView(generics.CreateAPIView):
 class AdminUserViewSet(viewsets.ModelViewSet):
     """Full user management for superadmins: list, create, update, toggle role, delete."""
     permission_classes = [permissions.IsAdminUser]
-    queryset = User.objects.all().order_by('-date_joined')
+    queryset = User.objects.all().select_related('profile').order_by('-date_joined')
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['is_staff', 'is_superuser', 'is_active']
-    search_fields = ['username', 'email', 'first_name', 'last_name']
+    search_fields = ['username', 'email', 'first_name', 'last_name', 'profile__display_name', 'profile__designation']
     ordering_fields = ['date_joined', 'username']
+
+    @property
+    def paginator(self):
+        if self.request.query_params.get('all') in ['true', '1', 'True']:
+            return None
+        return super().paginator
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -1054,3 +1138,180 @@ class MediaUploadView(APIView):
             'size': file_obj.size,
             'content_type': getattr(file_obj, 'content_type', 'image/jpeg')
         }, status=status.HTTP_201_CREATED)
+
+
+class BlogPostMetaView(View):
+    """
+    Renders high-fidelity HTML OpenGraph & Twitter Card metadata tags
+    specifically for social media crawlers (Facebook, WhatsApp, Twitter/X,
+    LinkedIn, Telegram, Discord, etc.) when sharing blog detail page links.
+    Ensures that social share previews display the exact blog thumbnail and blog title.
+    """
+    def get(self, request, slug=None, *args, **kwargs):
+        slug = slug or kwargs.get('slug')
+        if not slug:
+            return HttpResponse("Article slug is required", status=400)
+
+        candidates = resolve_slug_candidates(slug)
+        q_filter = Q(slug__in=candidates)
+        m = re.match(r'^(\d+)(?:-.*)?$', str(slug).strip())
+        if m:
+            q_filter |= Q(id=int(m.group(1)))
+
+        article = Article.objects.filter(q_filter).first()
+        if not article:
+            from django.utils.text import slugify as legacy_slugify
+            for cand in candidates:
+                if not all(ord(ch) < 128 for ch in cand):
+                    for art in Article.objects.all():
+                        if legacy_slugify(art.title, allow_unicode=True) == cand:
+                            article = art
+                            break
+                    if article:
+                        break
+
+        if not article:
+            return HttpResponse("Article not found", status=404)
+
+        # Title
+        title = article.title.strip()
+        site_name = "The Mad Story"
+        page_title = f"{title} — {site_name}"
+
+        # Excerpt / Description
+        raw_excerpt = article.excerpt.strip() if article.excerpt else ""
+        if not raw_excerpt and article.content:
+            raw_excerpt = strip_tags(article.content)[:220].strip()
+        if not raw_excerpt:
+            raw_excerpt = f"{title} — {site_name}"
+        description = " ".join(raw_excerpt.split())[:300]
+
+        # Thumbnail Image URL
+        image_url = ""
+        if article.cover_image:
+            try:
+                image_url = article.cover_image.url
+            except Exception:
+                image_url = ""
+        elif article.cover_image_url:
+            image_url = article.cover_image_url
+
+        if not image_url:
+            image_url = article.image or "/assets/images/18-1024x678.jpg"
+
+        # Ensure absolute URL
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'https://themadstory.com').rstrip('/')
+        backend_url = getattr(settings, 'BACKEND_URL', 'https://api.themadstory.com').rstrip('/')
+
+        if image_url.startswith("//"):
+            image_url = f"https:{image_url}"
+        elif image_url.startswith("/"):
+            if image_url.startswith('/media/'):
+                image_url = f"{backend_url}{image_url}"
+            else:
+                image_url = f"{frontend_url}{image_url}"
+        elif not image_url.startswith("http://") and not image_url.startswith("https://"):
+            image_url = f"https://{image_url}"
+
+        # Ensure HTTPS in production
+        if image_url.startswith("http://") and not ("127.0.0.1" in image_url or "localhost" in image_url):
+            image_url = "https://" + image_url[7:]
+
+        # Canonical blog detail URL on frontend
+        encoded_slug = urllib.parse.quote(str(article.slug), safe='')
+        canonical_url = f"{frontend_url}/post/{encoded_slug}"
+
+        # Author & Published time
+        author_name = article.author_name or "The Mad Story Editorial Desk"
+        published_time = article.published_at.isoformat() if article.published_at else ""
+
+        # JSON response support for programmatic consumers
+        accept_header = request.headers.get('accept', '')
+        if 'application/json' in accept_header and 'text/html' not in accept_header:
+            return JsonResponse({
+                'title': title,
+                'excerpt': description,
+                'image': image_url,
+                'url': canonical_url,
+                'author': author_name,
+                'published_at': published_time,
+            })
+
+        # Determine image MIME type for og:image:type
+        image_mime = "image/jpeg"
+        lower_img = image_url.lower()
+        if lower_img.endswith(".png") or ".png?" in lower_img:
+            image_mime = "image/png"
+        elif lower_img.endswith(".webp") or ".webp?" in lower_img:
+            image_mime = "image/webp"
+        elif lower_img.endswith(".gif") or ".gif?" in lower_img:
+            image_mime = "image/gif"
+
+        esc_title = html.escape(title, quote=True)
+        esc_page_title = html.escape(page_title, quote=True)
+        esc_desc = html.escape(description, quote=True)
+        esc_img = html.escape(image_url, quote=True)
+        esc_url = html.escape(canonical_url, quote=True)
+        esc_author = html.escape(author_name, quote=True)
+        esc_site = html.escape(site_name, quote=True)
+
+        html_content = f"""<!doctype html>
+<html lang="bn-BD" dir="ltr" prefix="og: https://ogp.me/ns# fb: https://ogp.me/ns/fb# article: https://ogp.me/ns/article#">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{esc_page_title}</title>
+
+    <!-- Primary OpenGraph Image & Media Tags (Placed at top for WhatsApp & Facebook scrapers) -->
+    <meta property="og:image" content="{esc_img}" />
+    <meta property="og:image:secure_url" content="{esc_img}" />
+    <meta property="og:image:type" content="{image_mime}" />
+    <meta property="og:image:alt" content="{esc_title}" />
+    <link rel="image_src" href="{esc_img}" />
+
+    <!-- Twitter Card Image Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="{esc_img}" />
+    <meta name="twitter:image:src" content="{esc_img}" />
+    <meta name="twitter:image:alt" content="{esc_title}" />
+
+    <!-- Open Graph Content & Article Metadata -->
+    <meta property="og:site_name" content="{esc_site}" />
+    <meta property="og:type" content="article" />
+    <meta property="og:url" content="{esc_url}" />
+    <meta property="og:title" content="{esc_title}" />
+    <meta property="og:description" content="{esc_desc}" />
+    <meta property="og:locale" content="bn_BD" />
+    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="article:published_time" content="{published_time}" />
+    <meta property="article:author" content="{esc_author}" />
+
+    <!-- Twitter Card Metadata -->
+    <meta name="twitter:site" content="@themadstory" />
+    <meta name="twitter:url" content="{esc_url}" />
+    <meta name="twitter:title" content="{esc_title}" />
+    <meta name="twitter:description" content="{esc_desc}" />
+
+    <!-- Standard SEO -->
+    <meta name="description" content="{esc_desc}" />
+    <meta name="author" content="{esc_author}" />
+    <link rel="canonical" href="{esc_url}" />
+
+    <!-- JS Redirect for Human Browsers (No meta refresh to ensure crawlers never drop image) -->
+    <script>
+        if (window.location.href !== "{esc_url}") {{
+            window.location.replace("{esc_url}");
+        }}
+    </script>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #fcfbfa; color: #1e2022; padding: 40px 20px; text-align: center;">
+    <div style="max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); border: 1px solid #ded7cc;">
+        <h1 style="font-size: 20px; line-height: 1.4; margin-bottom: 16px; color: #800020;">{esc_title}</h1>
+        <img src="{esc_img}" alt="{esc_title}" style="max-width: 100%; height: auto; border-radius: 6px; margin-bottom: 20px;" />
+        <p style="font-size: 15px; line-height: 1.6; color: #4b5563; margin-bottom: 24px;">{esc_desc}</p>
+        <p style="font-size: 14px; color: #6b7280;">পুনর্নির্দেশ করা হচ্ছে... / Redirecting...</p>
+        <a href="{esc_url}" style="display: inline-block; background-color: #800020; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; margin-top: 10px;">সম্পূর্ণ লেখাটি পড়ুন / Read Full Article</a>
+    </div>
+</body>
+</html>"""
+        return HttpResponse(html_content, content_type="text/html; charset=utf-8")

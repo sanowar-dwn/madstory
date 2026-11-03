@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import path, re_path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
@@ -8,7 +8,7 @@ from .views import (
     HomepageCustomizationView, CommentDeleteView,
     AdminUserViewSet, AdminCommentViewSet, AdminContactInquiryViewSet,
     AdminNewsletterSubscriberViewSet, HeroSlideViewSet, MediaUploadView,
-    HealthCheckView, AuthorViewSet
+    HealthCheckView, AuthorViewSet, BlogPostMetaView
 )
 
 router = DefaultRouter()
@@ -25,6 +25,10 @@ router.register(r'admin/subscribers', AdminNewsletterSubscriberViewSet, basename
 urlpatterns = [
     # Core API Routers
     path('', include(router.urls)),
+
+    # Dynamic OpenGraph & Twitter Card Metadata Endpoints
+    re_path(r'^posts/(?P<slug>[^/]+)/meta/?$', BlogPostMetaView.as_view(), name='blog-post-meta'),
+    re_path(r'^articles/(?P<slug>[^/]+)/meta/?$', BlogPostMetaView.as_view(), name='article-meta'),
 
     # Authentication
     path('auth/register/', RegisterView.as_view(), name='auth-register'),

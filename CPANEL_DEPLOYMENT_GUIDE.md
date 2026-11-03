@@ -123,7 +123,8 @@ The frontend has already been compiled with `VITE_API_BASE_URL=https://api.thema
 1. On your local machine, the production files are ready inside [frontend/dist/](file:///d:/Projects/madstory/frontend/dist/).
 2. In cPanel **File Manager**, navigate to `/home/username/public_html/`.
 3. Upload all contents of `frontend/dist/` into `public_html/`:
-   - `.htaccess` *(Contains HTTPS redirect & SPA routing rules)*
+   - `.htaccess` *(Contains HTTPS redirect, crawler interception & SPA routing rules)*
+   - `preview.php` *(Generates dynamic OpenGraph & Twitter Card tags with thumbnail and title for social crawlers)*
    - `index.html`
    - `assets/` folder
 

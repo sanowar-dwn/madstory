@@ -2,7 +2,8 @@ import axios, { AxiosRequestConfig } from 'axios';
 import {
   Article, Category, SiteSetting, ContactInquiryPayload, ContactInquiry,
   NewsletterSubscriber, HomeFeedPayload, User, AuthTokens, Comment,
-  HomepageCustomization, DashboardStats, HeroSlide
+  HomepageCustomization, DashboardStats, HeroSlide, AuthorProfile,
+  AuthorDetail, CreateAuthorPayload
 } from '../types';
 import { toast } from '../context/ToastContext';
 import { parseApiError } from '../utils/errorHandler';
@@ -34,9 +35,39 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Automatically cleanses responses of localhost / loopback media URLs
+ * preventing Mixed Content (HTTP on HTTPS) and CORS Private Network Access issues.
+ */
+function sanitizeMediaUrls(data: any): any {
+  if (!data) return data;
+  if (typeof data === 'string') {
+    if (data.includes('127.0.0.1:8000') || data.includes('localhost:8000')) {
+      return data.replace(/^https?:\/\/(127\.0\.0\.1|localhost):8000/, '');
+    }
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map(sanitizeMediaUrls);
+  }
+  if (typeof data === 'object') {
+    const cleansed: Record<string, any> = {};
+    for (const key of Object.keys(data)) {
+      cleansed[key] = sanitizeMediaUrls(data[key]);
+    }
+    return cleansed;
+  }
+  return data;
+}
+
 // Response interceptor to handle errors in real-time
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.data) {
+      response.data = sanitizeMediaUrls(response.data);
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config || {};
 
@@ -133,6 +164,62 @@ export const api = {
   },
 
   // ----------------------------------------------------------------------
+  // Author Profiles & Details
+  // ----------------------------------------------------------------------
+  getAuthor: async (usernameOrId: string | number): Promise<AuthorDetail> => {
+    const res = await apiClient.get<AuthorDetail>(`/authors/${encodeURIComponent(usernameOrId)}/`);
+    return res.data;
+  },
+
+  getAuthors: async (params?: Record<string, any>): Promise<AuthorDetail[]> => {
+    const res = await apiClient.get<AuthorDetail[] | { results: AuthorDetail[] }>('/authors/', { params });
+    if (Array.isArray(res.data)) return res.data;
+    if (res.data && Array.isArray(res.data.results)) return res.data.results;
+    return [];
+  },
+
+  getMyProfile: async (): Promise<AuthorDetail> => {
+    const res = await apiClient.get<AuthorDetail>('/authors/me/');
+    return res.data;
+  },
+
+  updateMyProfile: async (
+    payload: Partial<AuthorProfile> & { first_name?: string; last_name?: string; profile?: Partial<AuthorProfile> }
+  ): Promise<AuthorDetail> => {
+    const res = await apiClient.patch<AuthorDetail>('/authors/me/', payload);
+    // Sync current user in storage if needed
+    if (res.data) {
+      try {
+        const stored = localStorage.getItem('madstory_user');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const updated = {
+            ...parsed,
+            first_name: res.data.first_name,
+            last_name: res.data.last_name,
+            profile: res.data.profile,
+          };
+          localStorage.setItem('madstory_user', JSON.stringify(updated));
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return res.data;
+  },
+
+  getAuthorArticles: async (
+    usernameOrId: string | number,
+    params?: { ordering?: string; search?: string; page?: number }
+  ): Promise<{ count: number; results: Article[]; next?: string | null }> => {
+    const res = await apiClient.get(`/authors/${encodeURIComponent(usernameOrId)}/articles/`, { params });
+    if (Array.isArray(res.data)) {
+      return { count: res.data.length, results: res.data, next: null };
+    }
+    return res.data;
+  },
+
+  // ----------------------------------------------------------------------
   // Settings & Navigation
   // ----------------------------------------------------------------------
   getSettings: async (): Promise<SiteSetting> => {
@@ -147,6 +234,7 @@ export const api = {
         tagline_en: 'A Quarterly Magazine on Art, Literature, Culture & Modern Lifestyle',
         logo_en_url: '/assets/images/Madstory-logo.png',
         logo_bn_url: '/assets/images/Madstory-logo-bangla.png',
+        footer_logo_url: '/assets/images/Madstory-logo.png',
         facebook_url: 'https://facebook.com/themadstory',
         twitter_url: 'https://twitter.com/themadstory',
         instagram_url: 'https://instagram.com/themadstory',
@@ -197,13 +285,48 @@ export const api = {
     return res.data;
   },
 
-  getArticles: async (params?: { category__slug?: string; search?: string; page?: number; status?: string; page_size?: number }): Promise<{ count: number; results: Article[] }> => {
+  getArticles: async (params?: { category__slug?: string; search?: string; page?: number; status?: string; page_size?: number }): Promise<{ count: number; results: Article[]; next?: string | null; previous?: string | null }> => {
     const res = await apiClient.get('/articles/', { params });
     return res.data;
   },
 
   getArticleBySlug: async (slug: string): Promise<Article> => {
-    const res = await apiClient.get<Article>(`/articles/${encodeURIComponent(slug)}/`);
+    try {
+      let cleanSlug = slug;
+      try {
+        cleanSlug = decodeURIComponent(slug);
+      } catch {
+        cleanSlug = slug;
+      }
+      const res = await apiClient.get<Article>(`/articles/${encodeURIComponent(cleanSlug)}/`);
+      return res.data;
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        // Fallback: If detail URL 404s due to web server / proxy unicode encoding mismatch,
+        // query using the slug parameter filter, then fetch by numeric ID for complete content
+        try {
+          const fallbackRes = await apiClient.get<{ count: number; results: Article[] }>('/articles/', {
+            params: { slug }
+          });
+          if (fallbackRes.data?.results && fallbackRes.data.results.length > 0) {
+            const item = fallbackRes.data.results[0];
+            try {
+              const detailRes = await apiClient.get<Article>(`/articles/${item.id}/`);
+              return detailRes.data;
+            } catch {
+              return item;
+            }
+          }
+        } catch {
+          // If fallback fails, continue to throw original error
+        }
+      }
+      throw err;
+    }
+  },
+
+  getArticleById: async (id: number): Promise<Article> => {
+    const res = await apiClient.get<Article>(`/articles/${id}/`);
     return res.data;
   },
 
@@ -259,6 +382,8 @@ export const api = {
     title: string;
     title_en?: string;
     category_ids: number[];
+    author_id?: number | null;
+    author_name?: string;
     excerpt: string;
     excerpt_en?: string;
     content: string;
@@ -266,13 +391,16 @@ export const api = {
     cover_image_url?: string;
     reading_time?: string;
     status?: 'draft' | 'pending_approval' | 'published';
+    is_featured_hero?: boolean;
+    is_colti_trending?: boolean;
+    is_nirbachito_choice?: boolean;
   }): Promise<Article> => {
     const res = await apiClient.post<Article>('/articles/', payload);
     return res.data;
   },
 
-  updateArticle: async (slug: string, payload: Partial<Article> & { category_ids?: number[]; cover_image_url?: string }): Promise<Article> => {
-    const res = await apiClient.patch<Article>(`/articles/${encodeURIComponent(slug)}/`, payload);
+  updateArticle: async (slugOrId: string | number, payload: Partial<Article> & { category_ids?: number[]; cover_image_url?: string; author_id?: number | null }): Promise<Article> => {
+    const res = await apiClient.patch<Article>(`/articles/${encodeURIComponent(String(slugOrId))}/`, payload);
     return res.data;
   },
 
@@ -311,8 +439,11 @@ export const api = {
     parent?: number | null;
     description?: string;
     description_en?: string;
+    thumbnail?: string;
+    banner?: string;
     display_order?: number;
     is_nav_visible?: boolean;
+    is_featured?: boolean;
   }): Promise<Category> => {
     const res = await apiClient.post<Category>('/categories/', payload);
     return res.data;
@@ -333,8 +464,28 @@ export const api = {
     return res.data;
   },
 
+  toggleCategoryFeatured: async (slug: string): Promise<{ is_featured: boolean }> => {
+    const res = await apiClient.post(`/categories/${encodeURIComponent(slug)}/toggle_featured/`);
+    return res.data;
+  },
+
+  getFeaturedCategories: async (): Promise<Category[]> => {
+    try {
+      const res = await apiClient.get<Category[] | { results: Category[] }>('/categories/featured/');
+      return Array.isArray(res.data) ? res.data : (res.data.results || []);
+    } catch {
+      return [];
+    }
+  },
+
   updateCategoryOrder: async (slug: string, display_order: number): Promise<{ display_order: number }> => {
     const res = await apiClient.post(`/categories/${encodeURIComponent(slug)}/set_order/`, { display_order });
+    return res.data;
+  },
+
+  reorderCategories: async (payload: { orders?: { id?: number; slug?: string; display_order: number }[]; order_ids?: number[] } | number[]): Promise<{ status: string; updated_count: number }> => {
+    const body = Array.isArray(payload) ? { order_ids: payload } : payload;
+    const res = await apiClient.post('/categories/reorder/', body);
     return res.data;
   },
 
@@ -342,8 +493,13 @@ export const api = {
   // Superadmin Users Management
   // ----------------------------------------------------------------------
   getAdminUsers: async (params?: Record<string, any>): Promise<User[]> => {
-    const res = await apiClient.get<User[] | { results: User[] }>('/admin/users/', { params });
+    const res = await apiClient.get<User[] | { results: User[] }>('/admin/users/', { params: { all: 'true', ...params } });
     return Array.isArray(res.data) ? res.data : (res.data.results || []);
+  },
+
+  createAuthor: async (payload: CreateAuthorPayload): Promise<User> => {
+    const res = await apiClient.post<User>('/admin/users/', payload);
+    return res.data;
   },
 
   createAdminUser: async (payload: Partial<User> & { password?: string }): Promise<User> => {
