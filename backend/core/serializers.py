@@ -217,6 +217,8 @@ class SubCategorySerializer(serializers.ModelSerializer):
 class CategorySerializer(serializers.ModelSerializer):
     subcategories = serializers.SerializerMethodField()
     articles_count = serializers.IntegerField(source='articles.count', read_only=True)
+    thumbnail = serializers.CharField(source='effective_thumbnail', read_only=True)
+    banner = serializers.CharField(source='effective_banner', read_only=True)
 
     class Meta:
         model = Category
@@ -615,6 +617,7 @@ class NewsletterSubscriberSerializer(serializers.ModelSerializer):
 
 class HeroSlideSerializer(serializers.ModelSerializer):
     link = serializers.CharField(source='button_link', required=False, allow_blank=True)
+    image = serializers.CharField(source='effective_image', read_only=True)
 
     class Meta:
         model = HeroSlide

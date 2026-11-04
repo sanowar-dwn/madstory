@@ -4,10 +4,34 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils.text import slugify
 from django.utils import timezone
+from django.conf import settings
 from ckeditor.fields import RichTextField
 import re
 import unicodedata
 from .transliterate import transliterate_to_english_slug
+
+
+def normalize_media_url(url):
+    """
+    Normalizes legacy media URLs (e.g. from previous shared hosting https://api.themadstory.com/media/...)
+    to the active MEDIA_URL (such as Cloudflare R2 or local media root).
+    """
+    if not url:
+        return ''
+    old_cpanel_prefix = 'https://api.themadstory.com/media/'
+    if url.startswith(old_cpanel_prefix):
+        rel = url[len(old_cpanel_prefix):]
+        media_base = getattr(settings, 'MEDIA_URL', '/media/').rstrip('/') + '/'
+        return f"{media_base}{rel}"
+    for local_prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+        if url.startswith(local_prefix):
+            rel = url[len(local_prefix):]
+            if rel.startswith('/media/'):
+                rel = rel[len('/media/'):]
+                media_base = getattr(settings, 'MEDIA_URL', '/media/').rstrip('/') + '/'
+                return f"{media_base}{rel}"
+            return rel
+    return url
 
 
 def generate_clean_slug(text, max_words=7, max_chars=75):
@@ -61,6 +85,30 @@ class Category(models.Model):
         if self.parent:
             return f"{self.parent.name} -> {self.name}"
         return self.name
+
+    @property
+    def effective_thumbnail(self):
+        url = ''
+        if self.thumbnail_image:
+            try:
+                url = self.thumbnail_image.url
+            except Exception:
+                url = ''
+        elif self.thumbnail:
+            url = self.thumbnail
+        return normalize_media_url(url)
+
+    @property
+    def effective_banner(self):
+        url = ''
+        if self.banner_image:
+            try:
+                url = self.banner_image.url
+            except Exception:
+                url = ''
+        elif self.banner:
+            url = self.banner
+        return normalize_media_url(url)
 
     def save(self, *args, **kwargs):
         # Guarantee 100% English ASCII slug
@@ -159,12 +207,7 @@ class Article(models.Model):
         if not url:
             return '/assets/images/18-1024x678.jpg'
 
-        for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
-            if url.startswith(prefix):
-                url = url[len(prefix):]
-                break
-
-        return url or '/assets/images/18-1024x678.jpg'
+        return normalize_media_url(url)
 
     @property
     def hearts_count(self):
@@ -356,6 +399,10 @@ class HeroSlide(models.Model):
     def __str__(self):
         return self.title
 
+    @property
+    def effective_image(self):
+        return normalize_media_url(self.image)
+
 
 class AuthorProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
@@ -399,12 +446,7 @@ class AuthorProfile(models.Model):
                 url = ''
         elif self.avatar:
             url = self.avatar
-        if url:
-            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
-                if url.startswith(prefix):
-                    url = url[len(prefix):]
-                    break
-        return url
+        return normalize_media_url(url)
 
     @property
     def effective_cover(self):
@@ -416,12 +458,7 @@ class AuthorProfile(models.Model):
                 url = ''
         elif self.cover_image:
             url = self.cover_image
-        if url:
-            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
-                if url.startswith(prefix):
-                    url = url[len(prefix):]
-                    break
-        return url
+        return normalize_media_url(url)
 
     def save(self, *args, **kwargs):
         if self.avatar_image:
