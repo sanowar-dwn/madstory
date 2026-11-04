@@ -51,4 +51,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn", "--workers", "3", "--bind", "0.0.0.0:8000", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "config.wsgi:application"]
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "config.wsgi:application"]

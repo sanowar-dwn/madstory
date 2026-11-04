@@ -3,7 +3,7 @@ from django.utils.html import format_html
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
     SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
-    AuthorProfile
+    AuthorProfile, Video
 )
 
 
@@ -87,7 +87,7 @@ class CommentAdmin(admin.ModelAdmin):
 
 @admin.register(HomepageCustomization)
 class HomepageCustomizationAdmin(admin.ModelAdmin):
-    list_display = ('__str__', 'updated_at', 'show_hero', 'show_featured_categories', 'show_lead', 'show_art_culture')
+    list_display = ('__str__', 'updated_at', 'show_hero', 'show_featured_categories', 'show_lead', 'show_art_culture', 'show_videos')
     filter_horizontal = ('hero_articles', 'colti_articles', 'nirbachito_articles', 'art_culture_articles', 'featured_categories', 'category_blocks')
 
     def has_add_permission(self, request):
@@ -139,4 +139,21 @@ class AuthorProfileAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="width: 35px; height: 35px; border-radius: 50%; object-fit: cover;" />', img_url)
         return '-'
     avatar_preview.short_description = 'Avatar'
+
+
+@admin.register(Video)
+class VideoAdmin(admin.ModelAdmin):
+    list_display = ('title', 'title_en', 'category', 'video_type', 'is_featured', 'display_order', 'is_active', 'created_at', 'thumbnail_preview')
+    list_filter = ('category', 'video_type', 'is_active', 'is_featured', 'created_at')
+    search_fields = ('title', 'title_en', 'description', 'description_en', 'category__name', 'category__name_en')
+    list_editable = ('display_order', 'is_active', 'is_featured')
+    ordering = ('display_order', '-created_at')
+
+    def thumbnail_preview(self, obj):
+        img_url = obj.effective_thumbnail
+        if img_url:
+            return format_html('<img src="{}" style="width: 50px; height: 30px; object-fit: cover; border-radius: 3px;" />', img_url)
+        return '-'
+    thumbnail_preview.short_description = 'Thumbnail'
+
 

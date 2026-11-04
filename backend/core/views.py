@@ -2,7 +2,7 @@ from rest_framework import viewsets, generics, status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
@@ -25,7 +25,7 @@ from datetime import datetime
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
     SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
-    AuthorProfile
+    AuthorProfile, Video
 )
 from .transliterate import transliterate_to_english_slug
 from .serializers import (
@@ -35,7 +35,7 @@ from .serializers import (
     ContactInquirySerializer, NewsletterSubscriberSerializer,
     UserSerializer, RegisterSerializer, AdminUserCreateUpdateSerializer,
     AdminCommentSerializer, HeroSlideSerializer, AuthorProfileSerializer,
-    AuthorDetailSerializer, AuthorSummarySerializer
+    AuthorDetailSerializer, AuthorSummarySerializer, VideoSerializer
 )
 
 
@@ -1055,6 +1055,58 @@ class HeroSlideViewSet(viewsets.ModelViewSet):
         return Response({'error': 'Missing display_order'}, status=status.HTTP_400_BAD_REQUEST)
 
 
+class VideoViewSet(viewsets.ModelViewSet):
+    """
+    Dedicated endpoint for the homepage Video section.
+    Supports YouTube embed or direct video upload / URL.
+    Public requests see active videos ordered by display_order.
+    Staff/Admin users can create, update, reorder, toggle, and delete videos.
+    """
+    queryset = Video.objects.select_related('category').all().order_by('display_order', '-created_at')
+    serializer_class = VideoSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = None
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['is_active', 'video_type', 'is_featured', 'category', 'category__slug']
+    search_fields = ['title', 'title_en', 'description', 'description_en', 'category__name', 'category__name_en']
+    ordering_fields = ['display_order', 'created_at']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.AllowAny()]
+        return [permissions.IsAdminUser()]
+
+    def get_queryset(self):
+        qs = Video.objects.select_related('category')
+        if not self.request.user.is_staff:
+            qs = qs.filter(is_active=True)
+        return qs.order_by('display_order', '-created_at')
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def toggle_active(self, request, pk=None):
+        video = self.get_object()
+        video.is_active = not video.is_active
+        video.save()
+        return Response({'is_active': video.is_active})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def toggle_featured(self, request, pk=None):
+        video = self.get_object()
+        video.is_featured = not video.is_featured
+        video.save()
+        return Response({'is_featured': video.is_featured})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def set_order(self, request, pk=None):
+        video = self.get_object()
+        new_order = request.data.get('display_order')
+        if new_order is not None:
+            video.display_order = int(new_order)
+            video.save()
+            return Response({'display_order': video.display_order})
+        return Response({'error': 'Missing display_order'}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class HealthCheckView(APIView):
     """
     Health check endpoint for Docker, Kubernetes, and load balancers.
@@ -1083,31 +1135,38 @@ class HealthCheckView(APIView):
 
 class MediaUploadView(APIView):
     """
-    Dedicated endpoint for uploading images to Cloudflare R2 / media storage.
+    Dedicated endpoint for uploading images and videos to media storage / Cloudflare R2.
     Accessible to authenticated users (authors, editors, admins).
-    Validates file formats (jpg, jpeg, png, webp, gif, svg, avif) and 15MB limit.
+    Validates file formats (images & videos: mp4, webm, ogg, mov).
     Returns: { "url": "...", "filename": "...", "size": ... }
     """
     permission_classes = [permissions.IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request, *args, **kwargs):
-        file_obj = request.FILES.get('file') or request.FILES.get('image')
+        file_obj = request.FILES.get('file') or request.FILES.get('image') or request.FILES.get('video')
         if not file_obj:
-            return Response({'error': 'No image file was provided in request.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 15 MB limit
-        if file_obj.size > 15 * 1024 * 1024:
-            return Response({'error': 'File size exceeds maximum allowable limit (15MB).'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'No file was provided in request.'}, status=status.HTTP_400_BAD_REQUEST)
 
         ext = os.path.splitext(file_obj.name)[1].lower()
-        allowed_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif']
+        image_extensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif']
+        video_extensions = ['.mp4', '.webm', '.ogg', '.mov']
+        allowed_extensions = image_extensions + video_extensions
+
         if ext not in allowed_extensions:
             return Response({
                 'error': f'Unsupported file format "{ext}". Allowed formats: {", ".join(allowed_extensions)}'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        if ext != '.svg':
+        is_video = ext in video_extensions
+
+        # Size limits: 100MB for video, 15MB for images
+        max_size = 100 * 1024 * 1024 if is_video else 15 * 1024 * 1024
+        max_size_label = "100MB" if is_video else "15MB"
+        if file_obj.size > max_size:
+            return Response({'error': f'File size exceeds maximum allowable limit ({max_size_label}).'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not is_video and ext != '.svg':
             try:
                 from PIL import Image
                 img = Image.open(file_obj)
@@ -1119,7 +1178,8 @@ class MediaUploadView(APIView):
         now = datetime.now()
         clean_name = os.path.splitext(file_obj.name)[0].replace(' ', '_')[:35]
         clean_name = "".join(c for c in clean_name if c.isalnum() or c in ('_', '-'))
-        unique_filename = f"uploads/{now.strftime('%Y/%m')}/{uuid.uuid4().hex[:10]}_{clean_name}{ext}"
+        folder = "videos" if is_video else "uploads"
+        unique_filename = f"{folder}/{now.strftime('%Y/%m')}/{uuid.uuid4().hex[:10]}_{clean_name}{ext}"
 
         saved_path = default_storage.save(unique_filename, file_obj)
         file_url = default_storage.url(saved_path)
@@ -1127,16 +1187,16 @@ class MediaUploadView(APIView):
         if not file_url.startswith(('http://', 'https://')):
             host = request.get_host().lower()
             if any(h in host for h in ('127.0.0.1', 'localhost')):
-                # In local development, retain relative URL so local host is not baked into DB
                 pass
             else:
                 file_url = request.build_absolute_uri(file_url)
 
+        default_content_type = 'video/mp4' if is_video else 'image/jpeg'
         return Response({
             'url': file_url,
             'filename': os.path.basename(saved_path),
             'size': file_obj.size,
-            'content_type': getattr(file_obj, 'content_type', 'image/jpeg')
+            'content_type': getattr(file_obj, 'content_type', default_content_type)
         }, status=status.HTTP_201_CREATED)
 
 

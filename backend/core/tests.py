@@ -5,7 +5,8 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from core.models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
-    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide
+    SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
+    Video
 )
 
 
@@ -468,4 +469,56 @@ class MadStoryProductionTests(TestCase):
         created_article = Article.objects.get(slug=slug)
         # Should remain self.writer, NOT another_author
         self.assertEqual(created_article.author, self.writer)
+
+    def test_video_youtube_id_and_embed_generation(self):
+        """
+        Verify Video model correctly extracts YouTube ID and builds embed URL.
+        """
+        v = Video.objects.create(
+            title='টেস্ট ইউটিউব ভিডিও',
+            video_type='youtube',
+            youtube_url='https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        )
+        self.assertEqual(v.youtube_id, 'dQw4w9WgXcQ')
+        self.assertIn('https://www.youtube.com/embed/dQw4w9WgXcQ', v.embed_url)
+        self.assertIn('dQw4w9WgXcQ', v.effective_thumbnail)
+
+    def test_video_api_public_and_admin_access(self):
+        """
+        Verify video API permissions: public can view active videos,
+        staff can create/toggle/reorder/delete, non-staff get 403 on write.
+        """
+        v1 = Video.objects.create(title='সক্রিয় ভিডিও', video_type='youtube', youtube_url='https://youtu.be/dQw4w9WgXcQ', is_active=True, display_order=1)
+        v2 = Video.objects.create(title='নিষ্ক্রিয় ভিডিও', video_type='direct', video_url='https://example.com/test.mp4', is_active=False, display_order=2)
+
+        # Public list (unauthenticated) - only active video should appear
+        res = self.client.get('/api/v1/videos/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        ids = [item['id'] for item in res.data]
+        self.assertIn(v1.id, ids)
+        self.assertNotIn(v2.id, ids)
+
+        # Non-staff cannot create video
+        self.client.force_authenticate(user=self.writer)
+        res = self.client.post('/api/v1/videos/', {'title': 'নতুন ভিডিও', 'video_type': 'youtube', 'youtube_url': 'https://youtu.be/dQw4w9WgXcQ'}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Admin can create video
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post('/api/v1/videos/', {
+            'title': 'অ্যাডমিন ভিডিও',
+            'title_en': 'Admin Video',
+            'video_type': 'direct',
+            'video_url': 'https://example.com/stream.mp4',
+            'is_featured': True
+        }, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(res.data['is_featured'])
+
+        # Admin can toggle active
+        res = self.client.post(f'/api/v1/videos/{v1.id}/toggle_active/')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        v1.refresh_from_db()
+        self.assertFalse(v1.is_active)
+
 

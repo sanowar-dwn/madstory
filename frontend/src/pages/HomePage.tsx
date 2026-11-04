@@ -5,8 +5,9 @@ import { LeadHeroSection } from '../components/home/LeadHeroSection';
 import { CardGridBlock } from '../components/home/CardGridBlock';
 import { MagazineCategoryGrid } from '../components/home/MagazineCategoryGrid';
 import { Sidebar } from '../components/home/Sidebar';
+import { VideoSection } from '../components/home/VideoSection';
 import { api } from '../services/api';
-import { HomeFeedPayload, Category, Article, HomepageCustomization, HeroSlide } from '../types';
+import { HomeFeedPayload, Category, Article, HomepageCustomization, HeroSlide, Video } from '../types';
 import { useLanguage } from '../context/LanguageContext';
 import { findCategoryInTree } from '../utils/categoryTree';
 import { Loader2 } from 'lucide-react';
@@ -19,6 +20,7 @@ export const HomePage: React.FC<HomePageProps> = ({ categories }) => {
   const [feed, setFeed] = useState<HomeFeedPayload | null>(null);
   const [allArticles, setAllArticles] = useState<Article[]>([]);
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>([]);
+  const [videos, setVideos] = useState<Video[]>([]);
   const [customization, setCustomization] = useState<HomepageCustomization | null>(null);
   const [loading, setLoading] = useState(true);
   const { lang, t } = useLanguage();
@@ -26,16 +28,18 @@ export const HomePage: React.FC<HomePageProps> = ({ categories }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [homeFeed, articlesRes, customData, slidesData] = await Promise.all([
+        const [homeFeed, articlesRes, customData, slidesData, videosData] = await Promise.all([
           api.getHomeFeed(),
           api.getArticles({ page_size: 100 }),
           api.getHomepageCustomization().catch(() => null),
           api.getHeroSlides().catch(() => []),
+          api.getVideos().catch(() => []),
         ]);
         setFeed(homeFeed);
         setAllArticles(articlesRes.results || []);
         setCustomization(customData);
         setHeroSlides(slidesData);
+        setVideos(videosData);
       } catch (err) {
         console.error('Error fetching home feed:', err);
       } finally {
@@ -211,6 +215,7 @@ export const HomePage: React.FC<HomePageProps> = ({ categories }) => {
   const showArtCulture = customization?.show_art_culture ?? true;
   const showCategoryBlocks = customization?.show_category_blocks ?? true;
   const showSidebar = customization?.show_sidebar ?? true;
+  const showVideos = customization?.show_videos ?? true;
 
   const featuredCategoriesTitle = lang === 'en'
     ? (customization?.featured_categories_title_en || 'Featured Categories')
@@ -218,6 +223,8 @@ export const HomePage: React.FC<HomePageProps> = ({ categories }) => {
   const coltiTitle = lang === 'en' ? (customization?.colti_title_en || 'Trending') : (customization?.colti_title_bn || 'চলতি');
   const nirbachitoTitle = lang === 'en' ? (customization?.nirbachito_title_en || "Editor's Choice") : (customization?.nirbachito_title_bn || 'নির্বাচিত');
   const artCultureTitle = lang === 'en' ? (customization?.art_culture_title_en || 'Art & Culture') : (customization?.art_culture_title_bn || 'শিল্প ও সংস্কৃতি');
+  const videosTitle = lang === 'en' ? (customization?.videos_title_en || 'Video Stories') : (customization?.videos_title_bn || 'ভিডিও স্টোরি');
+  const videosSubtitle = lang === 'en' ? (customization?.videos_subtitle_en || 'Interviews, visual essays & cultural documentaries') : (customization?.videos_subtitle_bn || 'বিশেষ সাক্ষাৎকার, ভিজ্যুয়াল স্টোরি ও তথ্যচিত্র');
 
   return (
     <div className="space-y-8">
@@ -282,6 +289,15 @@ export const HomePage: React.FC<HomePageProps> = ({ categories }) => {
             </div>
           )}
         </div>
+
+        {/* 6. Section: ভিডিও স্টোরি (Video Stories - YouTube Embed & Direct Video Player) */}
+        {showVideos && videos.length > 0 && (
+          <VideoSection
+            videos={videos}
+            title={videosTitle}
+            subtitle={videosSubtitle}
+          />
+        )}
       </div>
     </div>
   );

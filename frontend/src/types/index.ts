@@ -105,6 +105,35 @@ export interface HeroSlide {
   updated_at?: string;
 }
 
+export interface Video {
+  id: number;
+  title: string;
+  title_en?: string;
+  category?: number | null;
+  category_id?: number | null;
+  category_name?: string;
+  category_name_en?: string;
+  category_slug?: string;
+  description?: string;
+  description_en?: string;
+  video_type: 'youtube' | 'direct';
+  youtube_url?: string;
+  youtube_id?: string;
+  embed_url?: string;
+  video_file?: string | null;
+  video_url?: string;
+  effective_video_url?: string;
+  thumbnail?: string;
+  thumbnail_image?: string | null;
+  effective_thumbnail?: string;
+  duration?: string;
+  is_featured: boolean;
+  display_order: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Article {
   id: number;
   title: string;
@@ -212,6 +241,11 @@ export interface HomepageCustomization {
   show_art_culture: boolean;
   show_category_blocks: boolean;
   show_sidebar: boolean;
+  show_videos?: boolean;
+  videos_title_bn?: string;
+  videos_title_en?: string;
+  videos_subtitle_bn?: string;
+  videos_subtitle_en?: string;
   updated_at?: string;
 }
 

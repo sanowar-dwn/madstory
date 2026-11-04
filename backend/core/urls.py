@@ -8,7 +8,7 @@ from .views import (
     HomepageCustomizationView, CommentDeleteView,
     AdminUserViewSet, AdminCommentViewSet, AdminContactInquiryViewSet,
     AdminNewsletterSubscriberViewSet, HeroSlideViewSet, MediaUploadView,
-    HealthCheckView, AuthorViewSet, BlogPostMetaView
+    HealthCheckView, AuthorViewSet, BlogPostMetaView, VideoViewSet
 )
 
 router = DefaultRouter()
@@ -17,6 +17,7 @@ router.register(r'articles', ArticleViewSet, basename='article')
 router.register(r'posts', ArticleViewSet, basename='post')
 router.register(r'authors', AuthorViewSet, basename='author')
 router.register(r'hero-slides', HeroSlideViewSet, basename='hero-slide')
+router.register(r'videos', VideoViewSet, basename='video')
 router.register(r'admin/users', AdminUserViewSet, basename='admin-user')
 router.register(r'admin/comments', AdminCommentViewSet, basename='admin-comment')
 router.register(r'admin/inquiries', AdminContactInquiryViewSet, basename='admin-inquiry')

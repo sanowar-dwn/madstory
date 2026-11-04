@@ -259,6 +259,12 @@ class HomepageCustomization(models.Model):
     show_art_culture = models.BooleanField(default=True)
     show_category_blocks = models.BooleanField(default=True)
     show_sidebar = models.BooleanField(default=True)
+    show_videos = models.BooleanField(default=True)
+
+    videos_title_bn = models.CharField(max_length=150, default='ভিডিও স্টোরি')
+    videos_title_en = models.CharField(max_length=150, default='Video Stories')
+    videos_subtitle_bn = models.CharField(max_length=250, blank=True, default='বিশেষ সাক্ষাৎকার, ভিজ্যুয়াল স্টোরি ও তথ্যচিত্র')
+    videos_subtitle_en = models.CharField(max_length=250, blank=True, default='Interviews, visual stories & cultural documentaries')
 
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -445,4 +451,128 @@ class AuthorProfile(models.Model):
 def create_or_update_author_profile(sender, instance, created, **kwargs):
     if created:
         AuthorProfile.objects.get_or_create(user=instance)
+
+
+class Video(models.Model):
+    """
+    Video model for homepage Video section.
+    Supports either YouTube embed (extracting video ID and embed URL automatically)
+    or direct video file upload / direct video URL.
+    """
+    VIDEO_TYPE_CHOICES = (
+        ('youtube', 'YouTube Embed'),
+        ('direct', 'Direct Video'),
+    )
+
+    title = models.CharField(max_length=255, help_text="Video headline in Bengali")
+    title_en = models.CharField(max_length=255, blank=True, default='', help_text="Video headline in English")
+    category = models.ForeignKey(
+        'Category',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='videos',
+        help_text="Category for organizing videos into categorized sections"
+    )
+    description = models.TextField(blank=True, default='', help_text="Short description in Bengali")
+    description_en = models.TextField(blank=True, default='', help_text="Short description in English")
+    video_type = models.CharField(max_length=20, choices=VIDEO_TYPE_CHOICES, default='youtube')
+    youtube_url = models.CharField(max_length=500, blank=True, default='', help_text="YouTube link or watch/embed URL")
+    video_file = models.FileField(upload_to='videos/', blank=True, null=True, help_text="Direct video file upload (MP4, WebM, etc.)")
+    video_url = models.CharField(max_length=600, blank=True, default='', help_text="Direct video URL or CDN link")
+    thumbnail = models.CharField(max_length=600, blank=True, default='', help_text="Thumbnail image URL")
+    thumbnail_image = models.ImageField(upload_to='videos/thumbnails/', blank=True, null=True, help_text="Thumbnail image upload file")
+    duration = models.CharField(max_length=50, blank=True, default='', help_text="Duration label, e.g. 05:24 or 12:40")
+    is_featured = models.BooleanField(default=False, help_text="Mark as spotlight video for main player")
+    display_order = models.PositiveIntegerField(default=0, help_text="Ordering index")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Video'
+        verbose_name_plural = 'Videos'
+        ordering = ['display_order', '-created_at']
+
+    def __str__(self):
+        return self.title
+
+    @property
+    def youtube_id(self):
+        if not self.youtube_url:
+            return ''
+        url = self.youtube_url.strip()
+        match = re.search(r'(?:v=|\/embed\/|\/shorts\/|youtu\.be\/|\/v\/)([a-zA-Z0-9_-]{11})', url)
+        if match:
+            return match.group(1)
+        if re.match(r'^[a-zA-Z0-9_-]{11}$', url):
+            return url
+        return ''
+
+    @property
+    def embed_url(self):
+        if self.video_type == 'youtube':
+            yid = self.youtube_id
+            if yid:
+                return f"https://www.youtube.com/embed/{yid}?rel=0&modestbranding=1"
+            return self.youtube_url
+        return ''
+
+    @property
+    def effective_video_url(self):
+        if self.video_type == 'direct':
+            if self.video_file:
+                try:
+                    url = self.video_file.url
+                    for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                        if url.startswith(prefix):
+                            url = url[len(prefix):]
+                            break
+                    return url
+                except Exception:
+                    pass
+            return self.video_url
+        return ''
+
+    @property
+    def effective_thumbnail(self):
+        if self.thumbnail_image:
+            try:
+                url = self.thumbnail_image.url
+                for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                    if url.startswith(prefix):
+                        url = url[len(prefix):]
+                        break
+                return url
+            except Exception:
+                pass
+        if self.thumbnail:
+            return self.thumbnail
+        if self.video_type == 'youtube' and self.youtube_id:
+            return f"https://img.youtube.com/vi/{self.youtube_id}/hqdefault.jpg"
+        return ''
+
+    def save(self, *args, **kwargs):
+        if self.thumbnail_image:
+            try:
+                self.thumbnail = self.thumbnail_image.url
+            except Exception:
+                pass
+        if self.video_file:
+            try:
+                self.video_url = self.video_file.url
+            except Exception:
+                pass
+        if self.thumbnail:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.thumbnail.startswith(prefix):
+                    self.thumbnail = self.thumbnail[len(prefix):]
+                    break
+        if self.video_url:
+            for prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
+                if self.video_url.startswith(prefix):
+                    self.video_url = self.video_url[len(prefix):]
+                    break
+        super().save(*args, **kwargs)
+
 

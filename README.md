@@ -142,7 +142,14 @@ npm run dev
 
 ---
 
-## 5. Automated Verification
+## 5. Deployment Guides
+
+- **Render Cloud Deployment (Recommended)**: Follow [RENDER_DEPLOYMENT_GUIDE.md](file:///d:/Projects/madstory/RENDER_DEPLOYMENT_GUIDE.md) for 1-click Blueprint deployment with auto-scaling, PostgreSQL, WhiteNoise static handling, and SPA rewrites.
+- **cPanel Shared Hosting**: Follow [CPANEL_DEPLOYMENT_GUIDE.md](file:///d:/Projects/madstory/CPANEL_DEPLOYMENT_GUIDE.md) for Apache + Passenger WSGI deployment.
+
+---
+
+## 6. Automated Verification
 
 Run Django automated tests:
 

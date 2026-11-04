@@ -23,6 +23,13 @@ ALLOWED_HOSTS = [h.strip() for h in os.environ.get(
     'themadstory.com,www.themadstory.com,api.themadstory.com,localhost,127.0.0.1,0.0.0.0'
 ).split(',') if h.strip()]
 
+# Automatic Render Cloud Hosting Support
+RENDER_EXTERNAL_HOSTNAME = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+if '.onrender.com' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('.onrender.com')
+
 # Domain URLs for OpenGraph sharing & canonical redirects
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://themadstory.com')
 BACKEND_URL = os.environ.get('BACKEND_URL', 'https://api.themadstory.com')
@@ -287,6 +294,27 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
 ] + [origin.strip() for origin in custom_csrf.split(',') if origin.strip()]
+
+# Render & FRONTEND_URL dynamic origin bindings
+if FRONTEND_URL:
+    if FRONTEND_URL not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
+    if FRONTEND_URL not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
+
+if RENDER_EXTERNAL_HOSTNAME:
+    render_origin = f'https://{RENDER_EXTERNAL_HOSTNAME}'
+    if render_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(render_origin)
+
+if 'https://*.onrender.com' not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append('https://*.onrender.com')
+
+# Allow any onrender.com origin dynamically when deployed on Render
+if os.environ.get('RENDER'):
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^https://.*\.onrender\.com$",
+    ]
 
 # ------------------------------------------------------------------------------
 # Production Security Headers

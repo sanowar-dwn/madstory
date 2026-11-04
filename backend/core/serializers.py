@@ -4,7 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
     SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
-    AuthorProfile
+    AuthorProfile, Video
 )
 
 
@@ -574,7 +574,8 @@ class HomepageCustomizationSerializer(serializers.ModelSerializer):
             'art_culture_title_bn', 'art_culture_title_en',
             'featured_categories_title_bn', 'featured_categories_title_en',
             'show_hero', 'show_featured_categories', 'show_lead', 'show_art_culture', 'show_category_blocks',
-            'show_sidebar', 'updated_at'
+            'show_sidebar', 'show_videos', 'videos_title_bn', 'videos_title_en',
+            'videos_subtitle_bn', 'videos_subtitle_en', 'updated_at'
         ]
 
 
@@ -623,3 +624,32 @@ class HeroSlideSerializer(serializers.ModelSerializer):
             'is_active', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class VideoSerializer(serializers.ModelSerializer):
+    youtube_id = serializers.ReadOnlyField()
+    embed_url = serializers.ReadOnlyField()
+    effective_video_url = serializers.ReadOnlyField()
+    effective_thumbnail = serializers.ReadOnlyField()
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    category_name_en = serializers.CharField(source='category.name_en', read_only=True)
+    category_slug = serializers.CharField(source='category.slug', read_only=True)
+
+    class Meta:
+        model = Video
+        fields = [
+            'id', 'title', 'title_en', 'category', 'category_name',
+            'category_name_en', 'category_slug',
+            'description', 'description_en',
+            'video_type', 'youtube_url', 'youtube_id', 'embed_url',
+            'video_file', 'video_url', 'effective_video_url',
+            'thumbnail', 'thumbnail_image', 'effective_thumbnail',
+            'duration', 'is_featured', 'display_order',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'created_at', 'updated_at', 'youtube_id', 'embed_url',
+            'effective_video_url', 'effective_thumbnail',
+            'category_name', 'category_name_en', 'category_slug'
+        ]
+

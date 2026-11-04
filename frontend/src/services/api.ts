@@ -3,7 +3,7 @@ import {
   Article, Category, SiteSetting, ContactInquiryPayload, ContactInquiry,
   NewsletterSubscriber, HomeFeedPayload, User, AuthTokens, Comment,
   HomepageCustomization, DashboardStats, HeroSlide, AuthorProfile,
-  AuthorDetail, CreateAuthorPayload
+  AuthorDetail, CreateAuthorPayload, Video
 } from '../types';
 import { toast } from '../context/ToastContext';
 import { parseApiError } from '../utils/errorHandler';
@@ -636,6 +636,54 @@ export const api = {
 
   updateHeroSlideOrder: async (id: number, display_order: number): Promise<{ display_order: number }> => {
     const res = await apiClient.post(`/hero-slides/${id}/set_order/`, { display_order });
+    return res.data;
+  },
+
+  // ----------------------------------------------------------------------
+  // Video Stories Module (YouTube Embed & Direct Video Upload)
+  // ----------------------------------------------------------------------
+  getVideos: async (params?: { is_active?: boolean; is_featured?: boolean }): Promise<Video[]> => {
+    try {
+      const res = await apiClient.get<Video[] | { results: Video[] }>('/videos/', { params });
+      return Array.isArray(res.data) ? res.data : (res.data.results || []);
+    } catch {
+      return [];
+    }
+  },
+
+  createVideo: async (payload: FormData | Partial<Video>): Promise<Video> => {
+    const isFormData = payload instanceof FormData;
+    const res = await apiClient.post<Video>('/videos/', payload, {
+      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined,
+    });
+    return res.data;
+  },
+
+  updateVideo: async (id: number, payload: FormData | Partial<Video>): Promise<Video> => {
+    const isFormData = payload instanceof FormData;
+    const res = await apiClient.patch<Video>(`/videos/${id}/`, payload, {
+      headers: isFormData ? { 'Content-Type': 'multipart/form-data' } : undefined,
+    });
+    return res.data;
+  },
+
+  deleteVideo: async (id: number) => {
+    const res = await apiClient.delete(`/videos/${id}/`);
+    return res.data;
+  },
+
+  toggleVideoActive: async (id: number): Promise<{ is_active: boolean }> => {
+    const res = await apiClient.post(`/videos/${id}/toggle_active/`);
+    return res.data;
+  },
+
+  toggleVideoFeatured: async (id: number): Promise<{ is_featured: boolean }> => {
+    const res = await apiClient.post(`/videos/${id}/toggle_featured/`);
+    return res.data;
+  },
+
+  updateVideoOrder: async (id: number, display_order: number): Promise<{ display_order: number }> => {
+    const res = await apiClient.post(`/videos/${id}/set_order/`, { display_order });
     return res.data;
   },
 
