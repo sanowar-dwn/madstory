@@ -449,6 +449,9 @@ class AuthorProfile(models.Model):
 
 @receiver(post_save, sender=User)
 def create_or_update_author_profile(sender, instance, created, **kwargs):
+    # During fixture loading (loaddata / raw deserialization), do not trigger signal
+    if kwargs.get('raw', False):
+        return
     if created:
         AuthorProfile.objects.get_or_create(user=instance)
 

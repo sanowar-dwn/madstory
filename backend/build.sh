@@ -21,7 +21,7 @@ python manage.py migrate --noinput
 # Optional automatic fixture seeding for fresh databases (e.g. Render PostgreSQL)
 if [ "$AUTO_LOAD_FIXTURE" = "true" ] && [ -f "datadump.json" ]; then
   echo "==> AUTO_LOAD_FIXTURE=true: Seeding database from datadump.json..."
-  python manage.py loaddata datadump.json || echo "==> Fixture load completed or skipped non-critical duplicates."
+  python manage.py loaddata datadump.json
 fi
 
 echo "=========================================="
