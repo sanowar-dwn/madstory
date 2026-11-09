@@ -27,6 +27,7 @@ from .models import (
     SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
     AuthorProfile, Video
 )
+
 from .transliterate import transliterate_to_english_slug
 from .serializers import (
     CategorySerializer, ArticleListSerializer, ArticleDetailSerializer,
