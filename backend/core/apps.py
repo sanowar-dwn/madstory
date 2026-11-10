@@ -26,6 +26,14 @@ def enable_sqlite_optimizations(sender, connection, **kwargs):
             logger.warning(f"Could not apply SQLite WAL optimizations: {e}")
 
 
+def invalidate_home_cache(sender, **kwargs):
+    try:
+        from django.core.cache import cache
+        cache.delete('magazine_home_feed')
+    except Exception:
+        pass
+
+
 class CoreConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'core'
@@ -33,3 +41,8 @@ class CoreConfig(AppConfig):
 
     def ready(self):
         connection_created.connect(enable_sqlite_optimizations)
+        from django.db.models.signals import post_save, post_delete
+        from .models import Article, Category, HomepageCustomization, HeroSlide, Video
+        for model in (Article, Category, HomepageCustomization, HeroSlide, Video):
+            post_save.connect(invalidate_home_cache, sender=model)
+            post_delete.connect(invalidate_home_cache, sender=model)

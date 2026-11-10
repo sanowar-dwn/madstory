@@ -6,7 +6,8 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
-from django.db.models import F, Count, Q
+from django.db.models import F, Count, Q, Prefetch
+from django.core.cache import cache
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.http import Http404, HttpResponse, JsonResponse
@@ -30,7 +31,8 @@ from .models import (
 
 from .transliterate import transliterate_to_english_slug
 from .serializers import (
-    CategorySerializer, ArticleListSerializer, ArticleDetailSerializer,
+    CategorySerializer, CategorySummarySerializer, CategoryMinimalSerializer,
+    ArticleListSerializer, ArticleDetailSerializer,
     ArticleWriteSerializer, CommentSerializer, CommentCreateSerializer,
     HomepageCustomizationSerializer, SiteSettingSerializer,
     ContactInquirySerializer, NewsletterSubscriberSerializer,
@@ -139,8 +141,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         top_only = self.request.query_params.get('top_level', None)
         if top_only is not None and top_only.lower() in ('true', '1'):
-            qs = qs.filter(parent=None)
-        return qs
+            qs = qs.filter(parent=None).prefetch_related('subcategories')
+        return qs.annotate(annotated_articles_count=Count('articles', distinct=True))
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
     def toggle_nav(self, request, slug=None):
@@ -308,11 +310,16 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        base_qs = Article.objects.select_related('author', 'author__profile').prefetch_related('categories').annotate(
+            _hearts_count=Count('hearts', distinct=True),
+            _comments_count=Count('comments', filter=Q(comments__is_approved=True), distinct=True)
+        ).order_by('-published_at', '-id')
+
         # Regular public feeds only see published articles
         if self.action in ['featured_hero', 'colti_trending', 'nirbachito', 'popular', 'magazine_home']:
             category_slug = self.request.query_params.get('category__slug') or self.request.query_params.get('categories__slug') or self.request.query_params.get('category')
             author_param = self.request.query_params.get('author') or self.request.query_params.get('author__username')
-            qs = Article.objects.filter(status='published')
+            qs = base_qs.filter(status='published')
             if category_slug:
                 cat_candidates = resolve_slug_candidates(category_slug)
                 target_cats = Category.objects.filter(
@@ -337,11 +344,11 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
             if user.is_authenticated and user.is_staff and status_param:
                 if status_param == 'all':
-                    qs = Article.objects.all()
+                    qs = base_qs
                 else:
-                    qs = Article.objects.filter(status=status_param)
+                    qs = base_qs.filter(status=status_param)
             else:
-                qs = Article.objects.filter(status='published')
+                qs = base_qs.filter(status='published')
 
             if category_slug:
                 cat_candidates = resolve_slug_candidates(category_slug)
@@ -363,16 +370,16 @@ class ArticleViewSet(viewsets.ModelViewSet):
         elif self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
             if user.is_authenticated:
                 if user.is_staff:
-                    return Article.objects.all()
-                return Article.objects.filter(Q(status='published') | Q(author=user))
-            return Article.objects.filter(status='published')
+                    return base_qs
+                return base_qs.filter(Q(status='published') | Q(author=user))
+            return base_qs.filter(status='published')
         elif self.action == 'my_posts':
-            return Article.objects.filter(author=user)
+            return base_qs.filter(author=user)
         elif self.action in ['pending']:
-            return Article.objects.filter(status='pending_approval')
+            return base_qs.filter(status='pending_approval')
         elif user.is_staff:
-            return Article.objects.all()
-        return Article.objects.filter(status='published')
+            return base_qs
+        return base_qs.filter(status='published')
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -407,7 +414,7 @@ class ArticleViewSet(viewsets.ModelViewSet):
         return Response({
             'status': 'success',
             'is_hearted': is_hearted,
-            'hearts_count': article.hearts_count
+            'hearts_count': article.hearts.count()
         })
 
     # -------------------------------------------------------------
@@ -570,26 +577,77 @@ class ArticleViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def magazine_home(self, request):
-        # Only articles explicitly flagged with these three editorial flags
-        hero = self.get_queryset().filter(is_featured_hero=True)[:6]
-        colti = self.get_queryset().filter(is_colti_trending=True)[:6]
-        nirbachito = self.get_queryset().filter(is_nirbachito_choice=True)[:4]
-        popular = self.get_queryset().order_by('-view_count', '-published_at')[:6]
-        recent = self.get_queryset()[:12]
+        cache_key = 'magazine_home_feed'
+        # Serve cached payload for unauthenticated public visitors
+        if not request.user.is_authenticated:
+            cached_data = cache.get(cache_key)
+            if cached_data is not None:
+                resp = Response(cached_data)
+                resp['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
+                return resp
+
+        # Base optimized queryset: fetches all published articles with prefetching in a single roundtrip
+        base_qs = (
+            Article.objects.filter(status='published')
+            .select_related('author', 'author__profile')
+            .prefetch_related('categories')
+            .annotate(
+                _hearts_count=Count('hearts', distinct=True),
+                _comments_count=Count('comments', filter=Q(comments__is_approved=True), distinct=True)
+            )
+            .order_by('-published_at', '-created_at')
+        )
+        all_published = list(base_qs)
+
+        # In-memory partitioning to eliminate repeated DB queries
+        hero = [a for a in all_published if a.is_featured_hero][:6]
+        colti = [a for a in all_published if a.is_colti_trending][:6]
+        nirbachito = [a for a in all_published if a.is_nirbachito_choice][:4]
+        popular = sorted(all_published, key=lambda a: (a.view_count, a.published_at or a.created_at), reverse=True)[:6]
+        recent = all_published[:12]
 
         custom = HomepageCustomization.objects.first()
         custom_ids = list(custom.featured_categories.values_list('id', flat=True)) if custom else []
-        from django.db.models import Q
-        featured_cats = Category.objects.filter(Q(is_featured=True) | Q(id__in=custom_ids)).distinct().order_by('display_order', 'name')
+        featured_cats = list(
+            Category.objects.filter(Q(is_featured=True) | Q(id__in=custom_ids))
+            .distinct()
+            .order_by('display_order', 'name')
+        )
 
-        return Response({
+        slides = list(HeroSlide.objects.filter(is_active=True).order_by('display_order', '-created_at'))
+        videos = list(Video.objects.filter(is_active=True).order_by('display_order', '-created_at'))
+
+        custom_obj = None
+        if custom:
+            cat_qs = Category.objects.all().order_by('display_order', 'name')
+            custom_obj = HomepageCustomization.objects.prefetch_related(
+                Prefetch('hero_articles', queryset=base_qs),
+                Prefetch('colti_articles', queryset=base_qs),
+                Prefetch('nirbachito_articles', queryset=base_qs),
+                Prefetch('art_culture_articles', queryset=base_qs),
+                Prefetch('featured_categories', queryset=cat_qs),
+                Prefetch('category_blocks', queryset=cat_qs),
+            ).filter(id=custom.id).first()
+
+        data = {
             'hero': ArticleListSerializer(hero, many=True, context={'request': request}).data,
             'colti': ArticleListSerializer(colti, many=True, context={'request': request}).data,
             'nirbachito': ArticleListSerializer(nirbachito, many=True, context={'request': request}).data,
             'popular': ArticleListSerializer(popular, many=True, context={'request': request}).data,
             'recent': ArticleListSerializer(recent, many=True, context={'request': request}).data,
-            'featured_categories': CategorySerializer(featured_cats, many=True, context={'request': request}).data,
-        })
+            'featured_categories': CategorySummarySerializer(featured_cats, many=True, context={'request': request}).data,
+            'customization': HomepageCustomizationSerializer(custom_obj, context={'request': request}).data if custom_obj else None,
+            'hero_slides': HeroSlideSerializer(slides, many=True, context={'request': request}).data,
+            'videos': VideoSerializer(videos, many=True, context={'request': request}).data,
+            'all_articles': ArticleListSerializer(all_published, many=True, context={'request': request}).data,
+        }
+
+        if not request.user.is_authenticated:
+            cache.set(cache_key, data, timeout=60)
+
+        resp = Response(data)
+        resp['Cache-Control'] = 'public, max-age=60, stale-while-revalidate=300'
+        return resp
 
 
 class CommentDeleteView(APIView):
@@ -617,7 +675,26 @@ class HomepageCustomizationView(generics.RetrieveUpdateAPIView):
         return [permissions.IsAdminUser()]
 
     def get_object(self):
-        obj, created = HomepageCustomization.objects.get_or_create(id=1)
+        article_qs = (
+            Article.objects.filter(status='published')
+            .select_related('author', 'author__profile')
+            .prefetch_related('categories')
+            .annotate(
+                _hearts_count=Count('hearts', distinct=True),
+                _comments_count=Count('comments', filter=Q(comments__is_approved=True), distinct=True)
+            )
+        )
+        cat_qs = Category.objects.all().order_by('display_order', 'name')
+        obj = HomepageCustomization.objects.prefetch_related(
+            Prefetch('hero_articles', queryset=article_qs),
+            Prefetch('colti_articles', queryset=article_qs),
+            Prefetch('nirbachito_articles', queryset=article_qs),
+            Prefetch('art_culture_articles', queryset=article_qs),
+            Prefetch('featured_categories', queryset=cat_qs),
+            Prefetch('category_blocks', queryset=cat_qs),
+        ).filter(id=1).first()
+        if not obj:
+            obj, _ = HomepageCustomization.objects.get_or_create(id=1)
         return obj
 
 

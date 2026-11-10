@@ -45,7 +45,7 @@ const AppContent: React.FC = () => {
         const [settingsData, categoriesData, articlesData] = await Promise.all([
           api.getSettings(),
           api.getCategories(),
-          api.getArticles()
+          api.getArticles({ page_size: 3 })
         ]);
         setSettings(settingsData);
         setCategories(categoriesData);

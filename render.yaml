@@ -7,7 +7,7 @@ services:
     runtime: python
     rootDir: backend
     buildCommand: "./build.sh"
-    startCommand: "gunicorn config.wsgi:application"
+    startCommand: "gunicorn -c gunicorn.conf.py config.wsgi:application"
     plan: starter
     autoDeploy: true
     healthCheckPath: /healthz

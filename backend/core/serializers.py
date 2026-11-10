@@ -214,9 +214,30 @@ class SubCategorySerializer(serializers.ModelSerializer):
         ]
 
 
+class CategoryMinimalSerializer(serializers.ModelSerializer):
+    """Ultra-lightweight category representation for nested article payloads."""
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'name_en', 'slug']
+
+
+class CategorySummarySerializer(serializers.ModelSerializer):
+    """Fast category serializer without recursive subcategories or N+1 queries."""
+    thumbnail = serializers.CharField(source='effective_thumbnail', read_only=True)
+    banner = serializers.CharField(source='effective_banner', read_only=True)
+
+    class Meta:
+        model = Category
+        fields = [
+            'id', 'name', 'name_en', 'slug', 'description', 'description_en',
+            'thumbnail', 'banner', 'parent', 'display_order',
+            'is_nav_visible', 'is_featured'
+        ]
+
+
 class CategorySerializer(serializers.ModelSerializer):
     subcategories = serializers.SerializerMethodField()
-    articles_count = serializers.IntegerField(source='articles.count', read_only=True)
+    articles_count = serializers.SerializerMethodField()
     thumbnail = serializers.CharField(source='effective_thumbnail', read_only=True)
     banner = serializers.CharField(source='effective_banner', read_only=True)
 
@@ -236,6 +257,11 @@ class CategorySerializer(serializers.ModelSerializer):
             'banner_image': {'required': False, 'allow_null': True}
         }
 
+    def get_articles_count(self, obj):
+        if hasattr(obj, 'annotated_articles_count') and obj.annotated_articles_count is not None:
+            return obj.annotated_articles_count
+        return obj.articles.count()
+
     def get_subcategories(self, obj):
         path_ids = self.context.get('_cat_path_ids')
         if path_ids is None:
@@ -244,7 +270,10 @@ class CategorySerializer(serializers.ModelSerializer):
             return []
         new_path = path_ids | {obj.id}
         new_context = {**self.context, '_cat_path_ids': new_path}
-        subs = obj.subcategories.all().order_by('display_order', 'name')
+        if hasattr(obj, '_prefetched_objects_cache') and 'subcategories' in obj._prefetched_objects_cache:
+            subs = list(obj.subcategories.all())
+        else:
+            subs = list(obj.subcategories.all().order_by('display_order', 'name'))
         return CategorySerializer(subs, many=True, context=new_context).data
 
     def validate(self, attrs):
@@ -306,13 +335,13 @@ class CommentCreateSerializer(serializers.ModelSerializer):
 
 
 class ArticleListSerializer(serializers.ModelSerializer):
-    categories = CategorySerializer(many=True, read_only=True)
+    categories = CategoryMinimalSerializer(many=True, read_only=True)
     category_name = serializers.SerializerMethodField()
     category_name_en = serializers.SerializerMethodField()
     category_slug = serializers.SerializerMethodField()
     image = serializers.CharField(read_only=True)
-    hearts_count = serializers.IntegerField(read_only=True)
-    comments_count = serializers.IntegerField(read_only=True)
+    hearts_count = serializers.SerializerMethodField()
+    comments_count = serializers.SerializerMethodField()
     is_hearted = serializers.SerializerMethodField()
     author = AuthorSummarySerializer(read_only=True)
 
@@ -325,33 +354,53 @@ class ArticleListSerializer(serializers.ModelSerializer):
             'view_count', 'status', 'published_at', 'hearts_count', 'comments_count', 'is_hearted'
         ]
 
+    def _get_first_category(self, obj):
+        if hasattr(obj, '_prefetched_objects_cache') and 'categories' in obj._prefetched_objects_cache:
+            cats = list(obj.categories.all())
+            return cats[0] if cats else None
+        return obj.categories.first()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_hearts_count(self, obj):
+        if hasattr(obj, '_hearts_count') and obj._hearts_count is not None:
+            return obj._hearts_count
+        return obj.hearts.count()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_comments_count(self, obj):
+        if hasattr(obj, '_comments_count') and obj._comments_count is not None:
+            return obj._comments_count
+        return obj.comments.filter(is_approved=True).count()
+
     @extend_schema_field(serializers.CharField())
     def get_category_name(self, obj):
-        first = obj.categories.first()
+        first = self._get_first_category(obj)
         return first.name if first else 'লাইফস্টাইল'
 
     @extend_schema_field(serializers.CharField())
     def get_category_name_en(self, obj):
-        first = obj.categories.first()
+        first = self._get_first_category(obj)
         if first:
             return first.name_en or first.name
         return 'Lifestyle'
 
     @extend_schema_field(serializers.CharField())
     def get_category_slug(self, obj):
-        first = obj.categories.first()
+        first = self._get_first_category(obj)
         return first.slug if first else 'lifestyle'
 
     @extend_schema_field(serializers.BooleanField())
     def get_is_hearted(self, obj):
         request = self.context.get('request')
         if request and request.user.is_authenticated:
+            if hasattr(obj, '_prefetched_objects_cache') and 'hearts' in obj._prefetched_objects_cache:
+                return any(h.user_id == request.user.id for h in obj.hearts.all())
             return obj.hearts.filter(user=request.user).exists()
         return False
 
 
 class ArticleDetailSerializer(serializers.ModelSerializer):
-    categories = CategorySerializer(many=True, read_only=True)
+    categories = CategoryMinimalSerializer(many=True, read_only=True)
     image = serializers.CharField(read_only=True)
     hearts_count = serializers.IntegerField(read_only=True)
     comments_count = serializers.IntegerField(read_only=True)
@@ -561,8 +610,8 @@ class HomepageCustomizationSerializer(serializers.ModelSerializer):
     colti_article_details = ArticleListSerializer(source='colti_articles', many=True, read_only=True)
     nirbachito_article_details = ArticleListSerializer(source='nirbachito_articles', many=True, read_only=True)
     art_culture_article_details = ArticleListSerializer(source='art_culture_articles', many=True, read_only=True)
-    featured_category_details = CategorySerializer(source='featured_categories', many=True, read_only=True)
-    category_block_details = CategorySerializer(source='category_blocks', many=True, read_only=True)
+    featured_category_details = CategorySummarySerializer(source='featured_categories', many=True, read_only=True)
+    category_block_details = CategorySummarySerializer(source='category_blocks', many=True, read_only=True)
 
     class Meta:
         model = HomepageCustomization

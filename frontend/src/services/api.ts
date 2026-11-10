@@ -123,6 +123,29 @@ apiClient.interceptors.response.use(
   }
 );
 
+function getCachedItem<T>(key: string, ttlMs = 5 * 60 * 1000): T | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.timestamp > ttlMs) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+    return parsed.data as T;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedItem<T>(key: string, data: T): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ data, timestamp: Date.now() }));
+  } catch {
+    // ignore
+  }
+}
+
 export const api = {
   // ----------------------------------------------------------------------
   // Auth
@@ -223,8 +246,16 @@ export const api = {
   // Settings & Navigation
   // ----------------------------------------------------------------------
   getSettings: async (): Promise<SiteSetting> => {
+    const cached = getCachedItem<SiteSetting>('madstory_settings');
+    if (cached) {
+      apiClient.get<SiteSetting>('/settings/').then((res) => {
+        setCachedItem('madstory_settings', res.data);
+      }).catch(() => {});
+      return cached;
+    }
     try {
       const res = await apiClient.get<SiteSetting>('/settings/');
+      setCachedItem('madstory_settings', res.data);
       return res.data;
     } catch {
       return {
@@ -250,10 +281,20 @@ export const api = {
   },
 
   getCategories: async (): Promise<Category[]> => {
+    const cached = getCachedItem<Category[]>('madstory_categories');
+    if (cached) {
+      apiClient.get<{ results: Category[] } | Category[]>('/categories/?top_level=true').then((res) => {
+        const data = Array.isArray(res.data) ? res.data : res.data.results || [];
+        setCachedItem('madstory_categories', data);
+      }).catch(() => {});
+      return cached;
+    }
     try {
       const res = await apiClient.get<{ results: Category[] } | Category[]>('/categories/?top_level=true');
       const data = res.data;
-      return Array.isArray(data) ? data : data.results || [];
+      const result = Array.isArray(data) ? data : data.results || [];
+      setCachedItem('madstory_categories', result);
+      return result;
     } catch {
       return [
         { id: 1, name: 'ডিজাইন এন্ড লাইফস্টাইল', name_en: 'Design & Lifestyle', slug: 'design-lifestyle', display_order: 1, is_nav_visible: true },

@@ -52,6 +52,8 @@ export const CardGridBlock: React.FC<CardGridBlockProps> = ({
                   <img
                     src={art.image}
                     alt={displayTitle}
+                    loading="lazy"
+                    decoding="async"
                     className="w-full h-full object-cover"
                   />
                 </Link>

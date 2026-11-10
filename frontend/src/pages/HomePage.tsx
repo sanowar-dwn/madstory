@@ -28,18 +28,45 @@ export const HomePage: React.FC<HomePageProps> = ({ categories }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [homeFeed, articlesRes, customData, slidesData, videosData] = await Promise.all([
-          api.getHomeFeed(),
-          api.getArticles({ page_size: 100 }),
-          api.getHomepageCustomization().catch(() => null),
-          api.getHeroSlides().catch(() => []),
-          api.getVideos().catch(() => []),
-        ]);
+        // Fast unified load: fetch home feed which contains all homepage sections in 1 fast query
+        const homeFeed = await api.getHomeFeed();
         setFeed(homeFeed);
-        setAllArticles(articlesRes.results || []);
-        setCustomization(customData);
-        setHeroSlides(slidesData);
-        setVideos(videosData);
+
+        if (homeFeed.customization) {
+          setCustomization(homeFeed.customization);
+        }
+        if (homeFeed.hero_slides && homeFeed.hero_slides.length > 0) {
+          setHeroSlides(homeFeed.hero_slides);
+        }
+        if (homeFeed.videos && homeFeed.videos.length > 0) {
+          setVideos(homeFeed.videos);
+        }
+        if (homeFeed.all_articles && homeFeed.all_articles.length > 0) {
+          setAllArticles(homeFeed.all_articles);
+        }
+
+        // Render UI immediately
+        setLoading(false);
+
+        // Resilient non-blocking fallback if any auxiliary data was missing
+        const auxiliaryTasks: Promise<any>[] = [];
+        if (!homeFeed.customization) {
+          auxiliaryTasks.push(api.getHomepageCustomization().then(setCustomization).catch(() => null));
+        }
+        if (!homeFeed.hero_slides || homeFeed.hero_slides.length === 0) {
+          auxiliaryTasks.push(api.getHeroSlides().then(setHeroSlides).catch(() => []));
+        }
+        if (!homeFeed.videos || homeFeed.videos.length === 0) {
+          auxiliaryTasks.push(api.getVideos().then(setVideos).catch(() => []));
+        }
+        if (!homeFeed.all_articles || homeFeed.all_articles.length === 0) {
+          auxiliaryTasks.push(api.getArticles({ page_size: 50 }).then((res) => {
+            if (res.results) setAllArticles(res.results);
+          }).catch(() => null));
+        }
+        if (auxiliaryTasks.length > 0) {
+          await Promise.all(auxiliaryTasks);
+        }
       } catch (err) {
         console.error('Error fetching home feed:', err);
       } finally {

@@ -54,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <img
                 src={currentSliderArt.image}
                 alt={currentSliderArt.title}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
               />
             </Link>

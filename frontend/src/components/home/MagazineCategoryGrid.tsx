@@ -150,6 +150,8 @@ export const MagazineCategoryGrid: React.FC<MagazineCategoryGridProps> = ({ bloc
                           <img
                             src={featured.image || '/assets/images/placeholder.jpg'}
                             alt={featured.title}
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-full object-cover"
                           />
                         </Link>
@@ -205,6 +207,8 @@ export const MagazineCategoryGrid: React.FC<MagazineCategoryGridProps> = ({ bloc
                               <img
                                 src={sub.image || '/assets/images/placeholder.jpg'}
                                 alt={sub.title}
+                                loading="lazy"
+                                decoding="async"
                                 className="w-full h-full object-cover group-hover/sub:scale-105 transition-transform duration-300"
                               />
                             </Link>

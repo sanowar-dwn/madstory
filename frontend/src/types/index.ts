@@ -302,6 +302,10 @@ export interface HomeFeedPayload {
   popular: Article[];
   recent: Article[];
   featured_categories?: Category[];
+  customization?: HomepageCustomization | null;
+  hero_slides?: HeroSlide[];
+  videos?: Video[];
+  all_articles?: Article[];
 }
 
 export interface DashboardStats {
