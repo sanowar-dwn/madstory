@@ -9,7 +9,6 @@ from core.models import (
     Video
 )
 
-
 class MadStoryProductionTests(TestCase):
     def setUp(self):
         self.client = APIClient()
