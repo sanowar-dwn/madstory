@@ -1404,6 +1404,8 @@ class BlogPostMetaView(View):
     <meta property="og:image" content="{esc_img}" />
     <meta property="og:image:secure_url" content="{esc_img}" />
     <meta property="og:image:type" content="{image_mime}" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="{esc_title}" />
     <link rel="image_src" href="{esc_img}" />
 

@@ -263,6 +263,8 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({ categories: prop
                   title={displayTitle}
                   excerpt={displayExcerpt}
                   articleId={article.id}
+                  slug={article.slug}
+                  image={article.image}
                 />
               </div>
             </div>
@@ -318,6 +320,8 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({ categories: prop
                 title={displayTitle}
                 excerpt={displayExcerpt}
                 articleId={article.id}
+                slug={article.slug}
+                image={article.image}
               />
             </div>
 
