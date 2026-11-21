@@ -56,7 +56,9 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const rawUrl = url || (typeof window !== 'undefined' ? window.location.href : '');
+  const origin = typeof window !== 'undefined' ? window.location.origin : 'https://themadstory.com';
+
+  const rawUrl = url || (slug ? `${origin}/post/${slug}` : (typeof window !== 'undefined' ? window.location.href : ''));
 
   // Normalized decoded URL: when copied to clipboard, displays clean Bengali script
   // in messaging apps (WhatsApp, Telegram, Messenger) rather than ugly %E0%A6...
@@ -68,41 +70,16 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
     }
   }, [rawUrl]);
 
-  // Crawlable share URL: points to the backend meta endpoint that serves proper
-  // OpenGraph/Twitter Card HTML to social media crawlers, ensuring the article's
-  // title, image, and description appear in share previews. Human browsers are
-  // redirected to the frontend SPA by the backend via a JS redirect.
-  const crawlableShareUrl = React.useMemo(() => {
-    if (!slug) return cleanUrl;
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-    try {
-      const apiOrigin = new URL(apiBase).origin;
-      return `${apiOrigin}/post/${encodeURIComponent(slug)}`;
-    } catch {
-      // VITE_API_BASE_URL is a relative path (e.g. /api/v1), use current origin
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://themadstory.com';
-      return `${origin}/post/${encodeURIComponent(slug)}`;
-    }
-  }, [slug, cleanUrl]);
-
-  // Safe single-encoded crawlable URL for social share popups
+  // Safe single-encoded URL for social share popups (Facebook, Twitter/X, LinkedIn)
   const safeEncodedUrl = React.useMemo(() => {
-    return encodeURIComponent(crawlableShareUrl);
-  }, [crawlableShareUrl]);
+    return encodeURIComponent(cleanUrl);
+  }, [cleanUrl]);
 
-  // Canonical short link if articleId is provided (ASCII only, ultra compact)
-  // Points to backend meta endpoint for proper social previews
+  // Canonical short link if articleId is provided on the clean frontend domain
   const shortUrl = React.useMemo(() => {
     if (!articleId) return '';
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/v1';
-    try {
-      const apiOrigin = new URL(apiBase).origin;
-      return `${apiOrigin}/post/${articleId}`;
-    } catch {
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://themadstory.com';
-      return `${origin}/post/${articleId}`;
-    }
-  }, [articleId]);
+    return `${origin}/post/${articleId}`;
+  }, [origin, articleId]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -176,7 +153,7 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
         await navigator.share({
           title,
           text: excerpt || title,
-          url: crawlableShareUrl,
+          url: cleanUrl,
         });
         toast.success(lang === 'en' ? 'Shared successfully!' : 'শেয়ার সম্পন্ন হয়েছে!');
       } catch (err: any) {
@@ -214,7 +191,7 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
       color: 'bg-[#25d366] hover:bg-[#20ba59] text-white',
       border: 'hover:border-[#25d366]',
       action: () => {
-        const text = `${title}\n\n${crawlableShareUrl}`;
+        const text = `${title}\n\n${cleanUrl}`;
         openSharePopup(
           `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`,
           'WhatsAppShare'
@@ -269,7 +246,7 @@ export const SocialShareBar: React.FC<SocialShareBarProps> = ({
       border: 'hover:border-gray-600',
       action: () => {
         window.location.href = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(
-          (excerpt ? excerpt + '\n\n' : '') + crawlableShareUrl
+          (excerpt ? excerpt + '\n\n' : '') + cleanUrl
         )}`;
       },
     },
