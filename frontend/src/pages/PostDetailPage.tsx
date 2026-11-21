@@ -127,7 +127,7 @@ export const PostDetailPage: React.FC<PostDetailPageProps> = ({ categories: prop
     return () => {
       document.title = 'The Mad Story — শিল্প, সাহিত্য, সংস্কৃতি ও সমকালীন জীবনধারার পত্রিকা';
       const origin = typeof window !== 'undefined' ? window.location.origin : 'https://themadstory.com';
-      const fallbackLogo = `${origin}/assets/images/Madstory-logo.png`;
+      const fallbackLogo = `${origin}/assets/images/Madstory-logo-bangla.png`;
       setMetaTag('og:type', 'website');
       setMetaTag('og:title', 'The Mad Story — শিল্প, সাহিত্য, সংস্কৃতি ও সমকালীন জীবনধারার পত্রিকা');
       setMetaTag('og:description', 'The Mad Story is a premier cultural and lifestyle magazine exploring design, architecture, literature, cinema, and contemporary editorial narratives.');
