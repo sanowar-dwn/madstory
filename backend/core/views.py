@@ -1191,6 +1191,7 @@ class HealthCheckView(APIView):
     Checks database connectivity and server responsiveness.
     """
     permission_classes = [permissions.AllowAny]
+    throttle_classes = []  # Exempt health checks from rate limiting
 
     def get(self, request, *args, **kwargs):
         from django.db import connection
