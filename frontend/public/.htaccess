@@ -17,8 +17,8 @@
   RewriteCond %{REQUEST_URI} ^/static/
   RewriteRule ^ - [L]
 
-  # 3b. Route media file requests to backend API
-  RewriteRule ^media/(.*)$ https://api.themadstory.com/media/$1 [R=301,L]
+  # 3b. Route media file requests to active Cloudflare R2 storage
+  RewriteRule ^media/(.*)$ https://pub-e30dac90a68b4fcd967e225c8fac5144.r2.dev/$1 [R=301,L]
 
   # 4. Social Media Crawlers (Facebook, WhatsApp, Twitter, LinkedIn, Telegram, Discord, etc.)
   # Serve dynamic OpenGraph & Twitter Card tags with blog thumbnail and title

@@ -18,17 +18,40 @@ def normalize_media_url(url):
     """
     if not url:
         return ''
-    old_cpanel_prefix = 'https://api.themadstory.com/media/'
-    if url.startswith(old_cpanel_prefix):
-        rel = url[len(old_cpanel_prefix):]
-        media_base = getattr(settings, 'MEDIA_URL', '/media/').rstrip('/') + '/'
+    media_base = getattr(settings, 'MEDIA_URL', '/media/').rstrip('/') + '/'
+    
+    # Check legacy cPanel / previous domain variants
+    for old_prefix in (
+        'https://api.themadstory.com/media/',
+        'http://api.themadstory.com/media/',
+        '//api.themadstory.com/media/',
+    ):
+        if url.startswith(old_prefix):
+            rel = url[len(old_prefix):]
+            return f"{media_base}{rel}"
+
+    # Handle direct /media/ relative paths when media_base is remote (e.g. Cloudflare R2)
+    if url.startswith('/media/'):
+        rel = url[len('/media/'):]
         return f"{media_base}{rel}"
+
+    # Handle local /assets/images/ when media_base is remote (e.g. Cloudflare R2 CDN)
+    if media_base.startswith('http'):
+        for asset_prefix in (
+            '/assets/images/',
+            'https://themadstory.com/assets/images/',
+            'http://themadstory.com/assets/images/',
+            '//themadstory.com/assets/images/',
+        ):
+            if url.startswith(asset_prefix):
+                rel = url[len(asset_prefix):]
+                return f"{media_base}assets/images/{rel}"
+
     for local_prefix in ('http://127.0.0.1:8000', 'http://localhost:8000', 'https://127.0.0.1:8000', 'https://localhost:8000'):
         if url.startswith(local_prefix):
             rel = url[len(local_prefix):]
             if rel.startswith('/media/'):
                 rel = rel[len('/media/'):]
-                media_base = getattr(settings, 'MEDIA_URL', '/media/').rstrip('/') + '/'
                 return f"{media_base}{rel}"
             return rel
     return url

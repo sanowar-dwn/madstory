@@ -20,5 +20,13 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
 
-if settings.DEBUG:
+from django.views.generic.base import RedirectView
+
+# Redirect legacy /media/ requests directly to active MEDIA_URL (e.g. Cloudflare R2)
+if getattr(settings, 'USE_CLOUDFLARE_R2', False):
+    media_target = settings.MEDIA_URL.rstrip('/')
+    urlpatterns += [
+        re_path(r'^media/(?P<path>.*)$', RedirectView.as_view(url=f"{media_target}/%(path)s", permanent=True)),
+    ]
+elif settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

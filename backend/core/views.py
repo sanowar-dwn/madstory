@@ -26,7 +26,7 @@ from datetime import datetime
 from .models import (
     Category, Article, PostHeart, Comment, HomepageCustomization,
     SiteSetting, ContactInquiry, NewsletterSubscriber, HeroSlide,
-    AuthorProfile, Video
+    AuthorProfile, Video, normalize_media_url
 )
 
 from .transliterate import transliterate_to_english_slug
@@ -1325,28 +1325,20 @@ class BlogPostMetaView(View):
             raw_excerpt = f"{title} — {site_name}"
         description = " ".join(raw_excerpt.split())[:300]
 
-        # Thumbnail Image URL
-        image_url = ""
-        if article.cover_image:
-            try:
-                image_url = article.cover_image.url
-            except Exception:
-                image_url = ""
-        elif article.cover_image_url:
-            image_url = article.cover_image_url
-
-        if not image_url:
-            image_url = article.image or "/assets/images/18-1024x678.jpg"
+        # Thumbnail Image URL (Always use the fully normalized article image)
+        image_url = normalize_media_url(article.image or "/assets/images/18-1024x678.jpg")
 
         # Ensure absolute URL
         frontend_url = getattr(settings, 'FRONTEND_URL', 'https://themadstory.com').rstrip('/')
-        backend_url = getattr(settings, 'BACKEND_URL', 'https://api.themadstory.com').rstrip('/')
+        media_base = getattr(settings, 'MEDIA_URL', '/media/').rstrip('/')
 
         if image_url.startswith("//"):
             image_url = f"https:{image_url}"
         elif image_url.startswith("/"):
-            if image_url.startswith('/media/'):
-                image_url = f"{backend_url}{image_url}"
+            if image_url.startswith('/media/') and media_base.startswith('http'):
+                image_url = f"{media_base}/{image_url[len('/media/'):]}"
+            elif image_url.startswith('/assets/images/') and media_base.startswith('http'):
+                image_url = f"{media_base}/assets/images/{image_url[len('/assets/images/'):]}"
             else:
                 image_url = f"{frontend_url}{image_url}"
         elif not image_url.startswith("http://") and not image_url.startswith("https://"):

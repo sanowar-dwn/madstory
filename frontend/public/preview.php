@@ -66,12 +66,21 @@ if ($response !== false) {
     }
 }
 
-// 4. Ensure absolute HTTPS URL for the image
+// 4. Ensure absolute HTTPS URL for the image & normalize legacy paths to Cloudflare R2
+$r2MediaDomain = 'https://pub-e30dac90a68b4fcd967e225c8fac5144.r2.dev/';
 if (str_starts_with($imageUrl, '//')) {
     $imageUrl = 'https:' . $imageUrl;
+} elseif (str_starts_with($imageUrl, 'http://api.themadstory.com/media/')) {
+    $imageUrl = $r2MediaDomain . substr($imageUrl, strlen('http://api.themadstory.com/media/'));
+} elseif (str_starts_with($imageUrl, 'https://api.themadstory.com/media/')) {
+    $imageUrl = $r2MediaDomain . substr($imageUrl, strlen('https://api.themadstory.com/media/'));
+} elseif (str_starts_with($imageUrl, '//api.themadstory.com/media/')) {
+    $imageUrl = $r2MediaDomain . substr($imageUrl, strlen('//api.themadstory.com/media/'));
 } elseif (str_starts_with($imageUrl, '/')) {
     if (str_starts_with($imageUrl, '/media/')) {
-        $imageUrl = 'https://api.themadstory.com' . $imageUrl;
+        $imageUrl = $r2MediaDomain . substr($imageUrl, strlen('/media/'));
+    } elseif (str_starts_with($imageUrl, '/assets/images/')) {
+        $imageUrl = $r2MediaDomain . 'assets/images/' . substr($imageUrl, strlen('/assets/images/'));
     } else {
         $imageUrl = 'https://themadstory.com' . $imageUrl;
     }
